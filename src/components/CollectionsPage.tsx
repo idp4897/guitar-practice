@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState, useTransition } from 'react';
 import { deleteCollectionAction } from '@/application/collections/collection.actions';
 import { filterCollections } from '@/domain/collections/filter';
-import type { StoredCollection } from '@/lib/collection-store';
+import type { StoredCollection } from '@/domain/collections/types';
 
 interface CollectionsPageProps {
   collections: StoredCollection[];

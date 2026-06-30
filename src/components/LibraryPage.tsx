@@ -11,7 +11,7 @@ import {
 import { TUNINGS, getTuning } from '@/domain/music/tuning';
 import { filterSongs } from '@/domain/songs/filter';
 import type { StoredSong } from '@/lib/song-store';
-import type { StoredCollection } from '@/lib/collection-store';
+import type { StoredCollection } from '@/domain/collections/types';
 
 const DEBOUNCE_MS = 250;
 

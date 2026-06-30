@@ -8,7 +8,7 @@ import {
   deleteCollectionAction,
   removeSongFromCollectionAction,
 } from '@/application/collections/collection.actions';
-import type { StoredCollection } from '@/lib/collection-store';
+import type { StoredCollection } from '@/domain/collections/types';
 import type { StoredSong } from '@/lib/song-store';
 
 interface CollectionViewPageProps {

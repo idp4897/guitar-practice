@@ -6,8 +6,7 @@ import {
   createCollectionAction,
   updateCollectionAction,
 } from '@/application/collections/collection.actions';
-import { normalizeTag } from '@/lib/collection-store';
-import type { StoredCollection } from '@/lib/collection-store';
+import { normalizeTag, type StoredCollection } from '@/domain/collections/types';
 
 interface CollectionEditorProps {
   collection?: StoredCollection;

@@ -1,31 +1,18 @@
 import { randomUUID } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
+import {
+  type StoredCollection,
+  type CreateCollectionInput,
+  type UpdateCollectionInput,
+  normalizeTag,
+} from '@/domain/collections/types';
+
+export type { StoredCollection, CreateCollectionInput, UpdateCollectionInput };
+export { normalizeTag };
 
 const DATA_DIR  = path.join(process.cwd(), '.data');
 const COLL_FILE = path.join(DATA_DIR, 'collections.json');
-
-export interface StoredCollection {
-  id:           string;
-  name:         string;
-  description?: string;
-  tags:         string[];   // normalized: lowercase, trimmed, deduplicated
-  songIds:      string[];   // ordered; many-to-many as embedded array
-  createdAt:    string;
-  updatedAt:    string;
-}
-
-export interface CreateCollectionInput {
-  name:         string;
-  description?: string;
-  tags?:        string[];
-}
-
-export type UpdateCollectionInput = Partial<CreateCollectionInput>;
-
-export function normalizeTag(tag: string): string {
-  return tag.trim().toLowerCase();
-}
 
 function read(): StoredCollection[] {
   if (!existsSync(COLL_FILE)) return [];

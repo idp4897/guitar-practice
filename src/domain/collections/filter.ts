@@ -1,4 +1,4 @@
-import type { StoredCollection } from '@/lib/collection-store';
+import type { StoredCollection } from '@/domain/collections/types';
 
 export function filterCollections(
   collections: StoredCollection[],
