@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { getAllTagsAction } from '@/application/collections/collection.actions';
 import { CollectionEditor } from '@/components/CollectionEditor';
 

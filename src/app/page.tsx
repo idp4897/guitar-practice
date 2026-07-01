@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { Suspense } from 'react';
 import { getSongsAction } from '@/application/songs/song.actions';
 import { getCollectionsAction } from '@/application/collections/collection.actions';
