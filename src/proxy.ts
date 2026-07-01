@@ -15,7 +15,7 @@ function secret(): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
   if (isPublic(pathname)) return NextResponse.next();
 
