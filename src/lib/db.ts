@@ -1,12 +1,26 @@
-import { createClient } from '@libsql/client';
+import { createClient, type Client } from '@libsql/client';
 
-export const turso = createClient({
-  url: process.env.TURSO_DATABASE_URL!,
-  authToken: process.env.TURSO_AUTH_TOKEN!,
-});
+let _client: Client | null = null;
 
-export async function initDb(): Promise<void> {
-  await turso.executeMultiple(`
+export function getDb(): Client {
+  if (!_client) {
+    _client = createClient({
+      url: process.env.TURSO_DATABASE_URL!,
+      authToken: process.env.TURSO_AUTH_TOKEN!,
+    });
+  }
+  return _client;
+}
+
+let _ready: Promise<void> | null = null;
+
+export function ensureDb(): Promise<void> {
+  if (!_ready) _ready = initSchema();
+  return _ready;
+}
+
+async function initSchema(): Promise<void> {
+  await getDb().executeMultiple(`
     CREATE TABLE IF NOT EXISTS songs (
       id            TEXT PRIMARY KEY,
       title         TEXT NOT NULL,

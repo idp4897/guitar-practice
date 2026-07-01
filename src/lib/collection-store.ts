@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { turso, initDb } from '@/lib/db';
+import { getDb, ensureDb } from '@/lib/db';
 import {
   type StoredCollection,
   type CreateCollectionInput,
@@ -20,7 +20,7 @@ function stamp(): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function rowToCollection(row: Record<string, any>): Promise<StoredCollection> {
-  const songResult = await turso.execute({
+  const songResult = await getDb().execute({
     sql: 'SELECT song_id FROM collection_songs WHERE collection_id = ? ORDER BY position ASC',
     args: [row.id as string],
   });
@@ -35,22 +35,16 @@ async function rowToCollection(row: Record<string, any>): Promise<StoredCollecti
   };
 }
 
-let dbReady: Promise<void> | null = null;
-function ensureDb(): Promise<void> {
-  if (!dbReady) dbReady = initDb();
-  return dbReady;
-}
-
 export const collectionStore = {
   findAll: async (): Promise<StoredCollection[]> => {
     await ensureDb();
-    const result = await turso.execute('SELECT * FROM collections ORDER BY created_at DESC');
+    const result = await getDb().execute('SELECT * FROM collections ORDER BY created_at DESC');
     return Promise.all(result.rows.map(rowToCollection));
   },
 
   findById: async (id: string): Promise<StoredCollection | undefined> => {
     await ensureDb();
-    const result = await turso.execute({
+    const result = await getDb().execute({
       sql: 'SELECT * FROM collections WHERE id = ?',
       args: [id],
     });
@@ -70,17 +64,10 @@ export const collectionStore = {
       createdAt:   now,
       updatedAt:   now,
     };
-    await turso.execute({
+    await getDb().execute({
       sql: `INSERT INTO collections (id, name, description, tags, created_at, updated_at)
             VALUES (?,?,?,?,?,?)`,
-      args: [
-        coll.id,
-        coll.name,
-        coll.description ?? null,
-        JSON.stringify(coll.tags),
-        coll.createdAt,
-        coll.updatedAt,
-      ],
+      args: [coll.id, coll.name, coll.description ?? null, JSON.stringify(coll.tags), coll.createdAt, coll.updatedAt],
     });
     return coll;
   },
@@ -91,30 +78,23 @@ export const collectionStore = {
     if (!existing) throw new Error(`Collection ${id} not found`);
     const updated: StoredCollection = {
       ...existing,
-      name:        input.name !== undefined ? input.name.trim()                         : existing.name,
+      name:        input.name !== undefined ? input.name.trim()                  : existing.name,
       description: input.description !== undefined
         ? (input.description.trim() || undefined)
         : existing.description,
       tags:        input.tags !== undefined ? normalizeTags(input.tags) : existing.tags,
       updatedAt:   stamp(),
     };
-    await turso.execute({
-      sql: `UPDATE collections SET name = ?, description = ?, tags = ?, updated_at = ?
-            WHERE id = ?`,
-      args: [
-        updated.name,
-        updated.description ?? null,
-        JSON.stringify(updated.tags),
-        updated.updatedAt,
-        id,
-      ],
+    await getDb().execute({
+      sql: `UPDATE collections SET name = ?, description = ?, tags = ?, updated_at = ? WHERE id = ?`,
+      args: [updated.name, updated.description ?? null, JSON.stringify(updated.tags), updated.updatedAt, id],
     });
     return updated;
   },
 
   delete: async (id: string): Promise<void> => {
     await ensureDb();
-    await turso.execute({ sql: 'DELETE FROM collections WHERE id = ?', args: [id] });
+    await getDb().execute({ sql: 'DELETE FROM collections WHERE id = ?', args: [id] });
   },
 
   addSong: async (collectionId: string, songId: string): Promise<StoredCollection> => {
@@ -122,13 +102,11 @@ export const collectionStore = {
     const existing = await collectionStore.findById(collectionId);
     if (!existing) throw new Error(`Collection ${collectionId} not found`);
     if (existing.songIds.includes(songId)) return existing;
-
-    const position = existing.songIds.length;
-    await turso.execute({
+    await getDb().execute({
       sql: 'INSERT OR IGNORE INTO collection_songs (collection_id, song_id, position) VALUES (?,?,?)',
-      args: [collectionId, songId, position],
+      args: [collectionId, songId, existing.songIds.length],
     });
-    await turso.execute({
+    await getDb().execute({
       sql: 'UPDATE collections SET updated_at = ? WHERE id = ?',
       args: [stamp(), collectionId],
     });
@@ -139,20 +117,18 @@ export const collectionStore = {
     await ensureDb();
     const existing = await collectionStore.findById(collectionId);
     if (!existing) throw new Error(`Collection ${collectionId} not found`);
-
-    await turso.execute({
+    await getDb().execute({
       sql: 'DELETE FROM collection_songs WHERE collection_id = ? AND song_id = ?',
       args: [collectionId, songId],
     });
-    // Re-index positions after removal
     const remaining = existing.songIds.filter((id) => id !== songId);
     for (let i = 0; i < remaining.length; i++) {
-      await turso.execute({
+      await getDb().execute({
         sql: 'UPDATE collection_songs SET position = ? WHERE collection_id = ? AND song_id = ?',
         args: [i, collectionId, remaining[i]],
       });
     }
-    await turso.execute({
+    await getDb().execute({
       sql: 'UPDATE collections SET updated_at = ? WHERE id = ?',
       args: [stamp(), collectionId],
     });
@@ -161,7 +137,7 @@ export const collectionStore = {
 
   findBySongId: async (songId: string): Promise<StoredCollection[]> => {
     await ensureDb();
-    const result = await turso.execute({
+    const result = await getDb().execute({
       sql: `SELECT c.* FROM collections c
             JOIN collection_songs cs ON cs.collection_id = c.id
             WHERE cs.song_id = ?`,
@@ -172,7 +148,7 @@ export const collectionStore = {
 
   getAllTags: async (): Promise<string[]> => {
     await ensureDb();
-    const result = await turso.execute('SELECT tags FROM collections');
+    const result = await getDb().execute('SELECT tags FROM collections');
     const all = result.rows.flatMap((r) => JSON.parse(r.tags as string) as string[]);
     return [...new Set(all)].sort();
   },
