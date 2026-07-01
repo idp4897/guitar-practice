@@ -30,15 +30,15 @@ function findCueIndex(cues: ChordCue[], time: number): number {
 // Always rendered hidden; mounts once per videoId so the player is never torn down mid-play.
 
 interface YouTubeEmbedProps {
-  videoId:       string;
+  videoId: string;
   onPlayerReady: (p: YTPlayer) => void;
   onStateChange: (s: number) => void;
-  onError:       (code: number) => void;
+  onError: (code: number) => void;
 }
 
 function YouTubeEmbed({ videoId, onPlayerReady, onStateChange, onError }: YouTubeEmbedProps) {
-  const uid      = useId().replace(/:/g, '');
-  const domId    = `yt-pp-${uid}`;
+  const uid = useId().replace(/:/g, '');
+  const domId = `yt-pp-${uid}`;
   const readyRef = useRef(onPlayerReady);
   const stateRef = useRef(onStateChange);
   const errorRef = useRef(onError);
@@ -46,25 +46,31 @@ function YouTubeEmbed({ videoId, onPlayerReady, onStateChange, onError }: YouTub
   stateRef.current = onStateChange;
   errorRef.current = onError;
 
+  const playerInstanceRef = useRef<YTPlayer | null>(null);
+
   useEffect(() => {
     let abandoned = false;
     ensureYouTubeApi(() => {
       if (abandoned || !document.getElementById(domId)) return;
-      new window.YT.Player(domId, {
+      playerInstanceRef.current = new window.YT.Player(domId, {
         videoId,
         // Fixed dimensions — container clips to 1×1 so it's visually hidden
         // but the player object is fully functional for audio & API calls.
-        width:  '200',
+        width: '200',
         height: '113',
         playerVars: { playsinline: 1, rel: 0, modestbranding: 1, iv_load_policy: 3, fs: 0 },
         events: {
-          onReady:       ({ target }) => { if (!abandoned) readyRef.current(target); },
-          onStateChange: ({ data })   => { if (!abandoned) stateRef.current(data);  },
-          onError:       ({ data })   => { if (!abandoned) errorRef.current(data);  },
+          onReady: ({ target }) => { if (!abandoned) readyRef.current(target); },
+          onStateChange: ({ data }) => { if (!abandoned) stateRef.current(data); },
+          onError: ({ data }) => { if (!abandoned) errorRef.current(data); },
         },
       });
     });
-    return () => { abandoned = true; };
+    return () => {
+      abandoned = true;
+      try { playerInstanceRef.current?.destroy(); } catch { /* ignore */ }
+      playerInstanceRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -74,15 +80,15 @@ function YouTubeEmbed({ videoId, onPlayerReady, onStateChange, onError }: YouTub
 // ─── ControlBar ───────────────────────────────────────────────────────────────
 
 interface ControlBarProps {
-  displayKey:      string;
-  transpose:       number;
-  capo:            number;
-  detectedKey:     string | null;
-  onTransposeUp:   () => void;
+  displayKey: string;
+  transpose: number;
+  capo: number;
+  detectedKey: string | null;
+  onTransposeUp: () => void;
   onTransposeDown: () => void;
-  onCapoChange:    (n: number) => void;
-  hasVideo:        boolean;
-  onVideoToggle:   () => void;
+  onCapoChange: (n: number) => void;
+  hasVideo: boolean;
+  onVideoToggle: () => void;
 }
 
 function ControlBar({
@@ -169,30 +175,31 @@ function formatTime(s: number): string {
 }
 
 interface AudioControlsProps {
-  player:      YTPlayer | null;
-  status:      PlayerStatus;
+  player: YTPlayer | null;
+  status: PlayerStatus;
   playerError: number | null;
-  onRemove:    () => void;
+  onRemove: () => void;
 }
 
 function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioControlsProps) {
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration,    setDuration]    = useState(0);
-  const [isSeeking,   setIsSeeking]   = useState(false);
-  const [seekValue,   setSeekValue]   = useState(0);
-  const [rate,        setRate]        = useState(1);
+  const [duration, setDuration] = useState(0);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekValue, setSeekValue] = useState(0);
+  const [rate, setRate] = useState(1);
   // mounted guards against SSR/client hydration mismatch on disabled props:
   // server always renders disabled=true; client syncs after first paint.
-  const [mounted,     setMounted]     = useState(false);
+  const [mounted, setMounted] = useState(false);
   const audioRafRef = useRef<number | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
 
+
   const isPlaying = status === 'playing';
   const isLoading = status === 'loading' || status === 'buffering';
-  const canPlay   = mounted && player != null &&
+  const canPlay = player != null &&
     (status === 'ready' || status === 'playing' || status === 'paused' ||
-     status === 'buffering' || status === 'ended');
+      status === 'buffering' || status === 'ended');
 
   // RAF loop — live time update, no drift
   useEffect(() => {
@@ -219,7 +226,7 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
   const handlePlayPause = () => {
     if (!player) return;
     if (isPlaying) player.pauseVideo();
-    else           player.playVideo();
+    else player.playVideo();
   };
 
   const handleSkip = (delta: number) => {
@@ -251,7 +258,9 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
   };
 
   const displayTime = isSeeking ? seekValue : currentTime;
-  const progress    = duration > 0 ? (displayTime / duration) : 0;
+  const progress = duration > 0 ? (displayTime / duration) : 0;
+
+  if (!mounted) return null;
 
   if (status === 'error') {
     return (
@@ -289,7 +298,7 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
             onChange={handleSeekChange}
             onMouseUp={handleSeekCommit}
             onTouchEnd={handleSeekCommit}
-            disabled={!canPlay || duration === 0}
+            disabled={Boolean(!canPlay || duration === 0)}
             aria-label="Seek"
             className="w-full h-1.5 rounded-full appearance-none cursor-pointer
               disabled:cursor-default
@@ -315,7 +324,7 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
       <div className="flex items-center px-4 pb-3 gap-1">
 
         {/* Skip back */}
-        <button onClick={() => handleSkip(-10)} disabled={!canPlay}
+        <button onClick={() => handleSkip(-10)} disabled={Boolean(!canPlay)}
           aria-label="Skip back 10s"
           className="flex items-center justify-center w-10 h-10 rounded-lg
             text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800
@@ -324,21 +333,21 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
         </button>
 
         {/* Play / Pause */}
-        <button onClick={handlePlayPause} disabled={!canPlay && !isLoading}
+        <button onClick={handlePlayPause} disabled={Boolean(!canPlay && !isLoading)}
           aria-label={isPlaying ? 'Pause' : 'Play'}
           className={[
             'flex items-center justify-center w-12 h-12 rounded-full transition-colors touch-manipulation',
             isLoading
               ? 'bg-zinc-700 text-zinc-400 cursor-wait'
               : canPlay
-              ? 'bg-amber-500 text-zinc-950 hover:bg-amber-400 active:bg-amber-300'
-              : 'bg-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed',
+                ? 'bg-amber-500 text-zinc-950 hover:bg-amber-400 active:bg-amber-300'
+                : 'bg-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed',
           ].join(' ')}>
           {isLoading ? <SpinnerIcon /> : isPlaying ? <PauseIcon /> : <PlayIcon />}
         </button>
 
         {/* Skip forward */}
-        <button onClick={() => handleSkip(10)} disabled={!canPlay}
+        <button onClick={() => handleSkip(10)} disabled={Boolean(!canPlay)}
           aria-label="Skip forward 10s"
           className="flex items-center justify-center w-10 h-10 rounded-lg
             text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800
@@ -393,10 +402,10 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
 // ─── BottomToolbar ────────────────────────────────────────────────────────────
 
 interface BottomToolbarProps {
-  autoScroll:  boolean;
+  autoScroll: boolean;
   onAutoScroll: () => void;
-  onTapSync:   () => void;
-  canTapSync:  boolean;
+  onTapSync: () => void;
+  canTapSync: boolean;
 }
 
 function BottomToolbar({ autoScroll, onAutoScroll, onTapSync, canTapSync }: BottomToolbarProps) {
@@ -432,17 +441,17 @@ function BottomToolbar({ autoScroll, onAutoScroll, onTapSync, canTapSync }: Bott
 // ─── PlayerPage ───────────────────────────────────────────────────────────────
 
 export interface PlayerPageProps {
-  songId:             string;
-  songTitle?:         string;
-  songArtist?:        string;
-  baseSheet:          ChordProSheet;
-  youtubeUrl?:        string;
-  chordMap?:          ChordCue[];
-  tuningId?:          string;
-  initialBpm?:        number;
-  songKeys?:          SongKey[];
+  songId: string;
+  songTitle?: string;
+  songArtist?: string;
+  baseSheet: ChordProSheet;
+  youtubeUrl?: string;
+  chordMap?: ChordCue[];
+  tuningId?: string;
+  initialBpm?: number;
+  songKeys?: SongKey[];
   onYoutubeUrlChange: (url: string) => void;
-  onChordMapChange:   (map: ChordCue[]) => void;
+  onChordMapChange: (map: ChordCue[]) => void;
 }
 
 export function PlayerPage({
@@ -460,21 +469,21 @@ export function PlayerPage({
 
   // ─── Key panel ────────────────────────────────────────────────────────────────
   const [selectedKey, setSelectedKey] = useState<SongKey | null>(null);
-  const [panelChord,  setPanelChord]  = useState<string | null>(null);
+  const [panelChord, setPanelChord] = useState<string | null>(null);
 
   useEffect(() => { setSelectedKey(null); setPanelChord(null); }, [songId]);
 
   // ─── YouTube ──────────────────────────────────────────────────────────────────
-  const [urlInput,     setUrlInput]     = useState(youtubeUrl ?? '');
-  const [urlError,     setUrlError]     = useState<string | null>(null);
-  const [videoId,      setVideoId]      = useState<string | null>(() =>
+  const [urlInput, setUrlInput] = useState(youtubeUrl ?? '');
+  const [urlError, setUrlError] = useState<string | null>(null);
+  const [videoId, setVideoId] = useState<string | null>(() =>
     youtubeUrl ? extractVideoId(youtubeUrl) : null,
   );
   const [playerStatus, setPlayerStatus] = useState<PlayerStatus>('idle');
-  const [playerError,  setPlayerError]  = useState<number | null>(null);
-  const [urlOpen,      setUrlOpen]      = useState(false);
+  const [playerError, setPlayerError] = useState<number | null>(null);
+  const [urlOpen, setUrlOpen] = useState(false);
   // player is tracked in both ref (for RAF perf) and state (for consistent SSR/client render)
-  const [player,       setPlayer]       = useState<YTPlayer | null>(null);
+  const [player, setPlayer] = useState<YTPlayer | null>(null);
   const playerRef = useRef<YTPlayer | null>(null);
 
   useEffect(() => {
@@ -489,9 +498,9 @@ export function PlayerPage({
 
   // ─── RAF chord highlight ──────────────────────────────────────────────────────
   const [activeChordIndex, setActiveChordIndex] = useState(-1);
-  const rafRef        = useRef<number | null>(null);
-  const prevIdxRef    = useRef(-1);
-  const chordMapRef   = useRef(chordMap);
+  const rafRef = useRef<number | null>(null);
+  const prevIdxRef = useRef(-1);
+  const chordMapRef = useRef(chordMap);
   chordMapRef.current = chordMap;
 
   useEffect(() => {
@@ -535,10 +544,10 @@ export function PlayerPage({
   }, []);
 
   const handleStateChange = useCallback((state: number) => {
-    if (state === YT_STATE.PLAYING)   setPlayerStatus('playing');
-    if (state === YT_STATE.PAUSED)    setPlayerStatus('paused');
+    if (state === YT_STATE.PLAYING) setPlayerStatus('playing');
+    if (state === YT_STATE.PAUSED) setPlayerStatus('paused');
     if (state === YT_STATE.BUFFERING) setPlayerStatus('buffering');
-    if (state === YT_STATE.ENDED)     setPlayerStatus('ended');
+    if (state === YT_STATE.ENDED) setPlayerStatus('ended');
     if (state === YT_STATE.UNSTARTED) setPlayerStatus('ready');
   }, []);
 
@@ -555,6 +564,7 @@ export function PlayerPage({
     setVideoId(id);
     setPlayerStatus('loading');
     playerRef.current = null;
+    setPlayer(null);
     onYoutubeUrlChange(urlInput.trim());
   }, [urlInput, onYoutubeUrlChange]);
 
@@ -718,7 +728,7 @@ export function PlayerPage({
           <Metronome initialBpm={initialBpm} />
           <BottomToolbar
             autoScroll={false}
-            onAutoScroll={() => {}}
+            onAutoScroll={() => { }}
             onTapSync={() => setTapOpen(true)}
             canTapSync={!!player && tapChords.length > 0}
           />
@@ -799,16 +809,16 @@ const THEORY_TERMS_COMMON = [
 ];
 
 interface DiatonicPanelProps {
-  songKey:      SongKey;
-  songChords:   string[];
+  songKey: SongKey;
+  songChords: string[];
   onChordClick: (chord: string) => void;
-  onClose:      () => void;
+  onClose: () => void;
 }
 
 function DiatonicPanel({ songKey, songChords, onChordClick, onClose }: DiatonicPanelProps) {
-  const diatonic  = getDiatonicChords(songKey);
-  const usedSet   = findUsedDiatonicChords(songChords, diatonic.map(d => d.chord));
-  const relKey    = getRelativeKey(songKey);
+  const diatonic = getDiatonicChords(songKey);
+  const usedSet = findUsedDiatonicChords(songChords, diatonic.map(d => d.chord));
+  const relKey = getRelativeKey(songKey);
   const theoryTerms = songKey.mode === 'minor'
     ? [...THEORY_TERMS_COMMON, 'Natural minor', 'Harmonic minor']
     : THEORY_TERMS_COMMON;
@@ -879,8 +889,8 @@ function DiatonicPanel({ songKey, songChords, onChordClick, onClose }: DiatonicP
 }
 
 interface ChordCardProps {
-  info:    DiatonicChordInfo;
-  isUsed:  boolean;
+  info: DiatonicChordInfo;
+  isUsed: boolean;
   onClick: () => void;
 }
 

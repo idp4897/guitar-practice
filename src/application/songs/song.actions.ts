@@ -13,26 +13,26 @@ export async function getSongAction(id: string) {
 }
 
 export async function createSongAction(input: CreateSongInput): Promise<void> {
-  const song = songStore.create(input);
+  const song = await songStore.create(input);
   revalidatePath('/');
   redirect(`/songs/${song.id}`);
 }
 
 export async function updateSongAction(id: string, input: UpdateSongInput): Promise<void> {
-  songStore.update(id, input);
+  await songStore.update(id, input);
   revalidatePath('/');
   revalidatePath(`/songs/${id}`);
   redirect(`/songs/${id}`);
 }
 
 export async function savePlaybackAction(id: string, data: UpdateSongInput): Promise<void> {
-  songStore.update(id, data);
+  await songStore.update(id, data);
   revalidatePath(`/songs/${id}`);
   refresh();
 }
 
 export async function deleteSongAction(id: string): Promise<void> {
-  songStore.delete(id);
+  await songStore.delete(id);
   revalidatePath('/');
   redirect('/');
 }
