@@ -43,6 +43,17 @@ export interface ChordCue {
   chord: string;  // chord name, e.g. "Am"
 }
 
+export interface ChordBeat {
+  chord: string;
+  beats: number;
+}
+
+export interface ChordSection {
+  label:  string;
+  chords: ChordBeat[];
+  repeat: number;   // 0 = infinite loop (practice mode only)
+}
+
 export interface SongKey {
   key:    string;              // root note only — "E", "G", "C#", "Bb"
   mode:   'major' | 'minor';

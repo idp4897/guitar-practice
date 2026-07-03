@@ -43,7 +43,7 @@ export function ChordSheetViewer({
 
   return (
     <>
-      <div className="font-mono text-base leading-relaxed p-6 max-w-3xl mx-auto select-text">
+      <div className="font-sans text-base leading-relaxed p-6 pb-20 max-w-3xl mx-auto select-text">
         {showHeader && (sheet.title || sheet.artist) && (
           <div className="mb-6">
             {sheet.title && (
@@ -75,7 +75,7 @@ export function ChordSheetViewer({
           }
 
           if (line.type === 'empty') {
-            return <div key={lineIdx} className="h-4" />;
+            return <div key={lineIdx} className="h-8" />;
           }
 
           return (
@@ -118,7 +118,7 @@ function LyricLine({
   return (
     // pt-6 (24px) reserves vertical space above the lyric row for chord names.
     // Chords are position:absolute so they don't affect lyric layout width.
-    <div className="relative pt-6 mb-1">
+    <div className="relative pt-6">
       {line.tokens.map((token, tokenIdx) => {
         const isRealChord = token.chord != null && !token.marker;
         const globalIdx = isRealChord ? tokenStartIndex + chordOffset++ : -1;
@@ -168,7 +168,7 @@ function LyricLine({
                 {/* Chord: absolutely positioned above — no impact on segment width */}
                 <span className="absolute bottom-full left-0 whitespace-nowrap leading-none pb-0.5">
                   {token.marker ? (
-                    <span className="text-base font-mono text-zinc-500 select-none">
+                    <span className="text-base font-sans text-zinc-500 select-none">
                       {token.chord}
                     </span>
                   ) : (
@@ -176,7 +176,7 @@ function LyricLine({
                       onClick={() => onChordClick(token.chord!)}
                       data-chord-idx={globalIdx >= 0 ? globalIdx : undefined}
                       className={[
-                        'text-base font-bold font-mono px-0.5 rounded leading-none',
+                        'text-base font-bold font-sans px-0.5 rounded leading-none',
                         'transition-colors cursor-pointer select-none hover:bg-amber-400/20',
                         state === 'active'
                           ? 'text-amber-300 bg-amber-400/30 ring-1 ring-amber-400/50'

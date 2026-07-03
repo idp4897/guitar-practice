@@ -135,6 +135,20 @@ export const collectionStore = {
     return collectionStore.findById(collectionId) as Promise<StoredCollection>;
   },
 
+  reorderSongs: async (collectionId: string, songIds: string[]): Promise<void> => {
+    await ensureDb();
+    for (let i = 0; i < songIds.length; i++) {
+      await getDb().execute({
+        sql: 'UPDATE collection_songs SET position = ? WHERE collection_id = ? AND song_id = ?',
+        args: [i, collectionId, songIds[i]],
+      });
+    }
+    await getDb().execute({
+      sql: 'UPDATE collections SET updated_at = ? WHERE id = ?',
+      args: [stamp(), collectionId],
+    });
+  },
+
   findBySongId: async (songId: string): Promise<StoredCollection[]> => {
     await ensureDb();
     const result = await getDb().execute({

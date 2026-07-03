@@ -223,9 +223,9 @@ function LyricLineView({ line, lineIdx, onCharClick }: LyricLineViewProps) {
   if (gs.length === 0 && line.chords.length > 0) {
     return (
       <div className="flex items-end gap-2 mb-1 pt-7 select-none">
-        {line.chords.map(({ charIndex, chord }) => (
+        {line.chords.map(({ charIndex, chord }, idx) => (
           <button
-            key={charIndex}
+            key={`${charIndex}-${idx}`}
             onClick={(e) => onCharClick(e, lineIdx, charIndex, chord)}
             className="font-mono font-bold text-sm text-amber-400 px-1 rounded
               hover:bg-amber-400/20 transition-colors"

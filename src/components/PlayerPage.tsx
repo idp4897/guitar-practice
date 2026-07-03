@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCountIn } from '@/hooks/useCountIn';
 import Link from 'next/link';
 import { type ChordCue, type ChordProSheet, type SongKey } from '@/domain/music/types';
 import { extractChords } from '@/domain/music/chordpro';
@@ -11,8 +12,10 @@ import { getDiatonicChords, findUsedDiatonicChords, getRelativeKey, formatSongKe
 import type { DiatonicChordInfo } from '@/domain/music/types';
 import { ChordSheetViewer } from './ChordSheetViewer';
 import { ChordDiagram } from './ChordDiagram';
+import { ChordGridPlayer } from './ChordGridPlayer';
 import { Metronome } from './Metronome';
 import { TapSyncMode } from './TapSyncMode';
+import type { ChordSection } from '@/domain/music/types';
 
 // ─── Chord-cue binary search ──────────────────────────────────────────────────
 
@@ -179,9 +182,18 @@ interface AudioControlsProps {
   status: PlayerStatus;
   playerError: number | null;
   onRemove: () => void;
+  chordMap?: ChordCue[];
+  startCountIn: (onComplete: () => void) => Promise<void>;
+  cancelCountIn: () => void;
+  isCountingIn: boolean;
+  currentBeat: number;
+  beatsTotal: number;
 }
 
-function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioControlsProps) {
+function YouTubeAudioControls({
+  player, status, playerError, onRemove, chordMap,
+  startCountIn, cancelCountIn, isCountingIn, currentBeat, beatsTotal,
+}: AudioControlsProps) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
@@ -191,6 +203,10 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
   // server always renders disabled=true; client syncs after first paint.
   const [mounted, setMounted] = useState(false);
   const audioRafRef = useRef<number | null>(null);
+  const playerRef = useRef<YTPlayer | null>(null);
+  playerRef.current = player;
+
+  const firstChordTime = chordMap?.[0]?.time ?? null;
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -225,9 +241,24 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
 
   const handlePlayPause = () => {
     if (!player) return;
+    if (isCountingIn) cancelCountIn();
     if (isPlaying) player.pauseVideo();
     else player.playVideo();
   };
+
+  const handleCountInPlay = useCallback(async () => {
+    if (isCountingIn) {
+      cancelCountIn();
+      return;
+    }
+    if (firstChordTime === null) return;
+    await startCountIn(() => {
+      const p = playerRef.current;
+      if (p == null) return;
+      p.seekTo(Math.max(0, firstChordTime - 1), true);
+      p.playVideo();
+    });
+  }, [isCountingIn, cancelCountIn, firstChordTime, startCountIn]);
 
   const handleSkip = (delta: number) => {
     if (!player) return;
@@ -259,6 +290,7 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
 
   const displayTime = isSeeking ? seekValue : currentTime;
   const progress = duration > 0 ? (displayTime / duration) : 0;
+  const canCountIn = mounted && canPlay && !isPlaying;
 
   if (!mounted) return null;
 
@@ -355,6 +387,27 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
           <SkipForwardIcon />
         </button>
 
+        {/* Count-in play — only when first chord is timed */}
+        {firstChordTime !== null && (
+          <button
+            onClick={handleCountInPlay}
+            disabled={!canCountIn && !isCountingIn}
+            aria-label={isCountingIn ? 'Cancel count-in' : 'Play with count-in'}
+            className={[
+              'flex items-center justify-center w-10 h-10 rounded-lg transition-colors touch-manipulation',
+              isCountingIn
+                ? 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/40'
+                : canCountIn
+                  ? 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+                  : 'text-zinc-700 cursor-not-allowed',
+            ].join(' ')}
+          >
+            {isCountingIn
+              ? <CountInBeats beat={currentBeat} total={beatsTotal} />
+              : <CountInPlayIcon />}
+          </button>
+        )}
+
         <div className="flex-1" />
 
         {/* Status pill */}
@@ -402,13 +455,15 @@ function YouTubeAudioControls({ player, status, playerError, onRemove }: AudioCo
 // ─── BottomToolbar ────────────────────────────────────────────────────────────
 
 interface BottomToolbarProps {
-  autoScroll: boolean;
-  onAutoScroll: () => void;
-  onTapSync: () => void;
-  canTapSync: boolean;
+  autoScroll:  boolean;
+  onAutoScroll:() => void;
+  onTapSync:   () => void;
+  canTapSync:  boolean;
+  onGrid:      () => void;
+  hasGrid:     boolean;
 }
 
-function BottomToolbar({ autoScroll, onAutoScroll, onTapSync, canTapSync }: BottomToolbarProps) {
+function BottomToolbar({ autoScroll, onAutoScroll, onTapSync, canTapSync, onGrid, hasGrid }: BottomToolbarProps) {
   return (
     <div className="shrink-0 flex items-center justify-end gap-1 px-3 h-11
       border-t border-zinc-800/60 bg-zinc-900 select-none">
@@ -434,6 +489,16 @@ function BottomToolbar({ autoScroll, onAutoScroll, onTapSync, canTapSync }: Bott
         <TapIcon />
         <span className="hidden sm:inline">Tap</span>
       </button>
+
+      {hasGrid && (
+        <button onClick={onGrid}
+          className="flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium
+            bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200
+            transition-colors touch-manipulation">
+          <GridIcon />
+          <span className="hidden sm:inline">Grid</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -441,29 +506,39 @@ function BottomToolbar({ autoScroll, onAutoScroll, onTapSync, canTapSync }: Bott
 // ─── PlayerPage ───────────────────────────────────────────────────────────────
 
 export interface PlayerPageProps {
-  songId: string;
-  songTitle?: string;
-  songArtist?: string;
-  baseSheet: ChordProSheet;
-  youtubeUrl?: string;
-  chordMap?: ChordCue[];
-  tuningId?: string;
-  initialBpm?: number;
-  songKeys?: SongKey[];
+  songId:             string;
+  songTitle?:         string;
+  songArtist?:        string;
+  baseSheet:          ChordProSheet;
+  youtubeUrl?:        string;
+  chordMap?:          ChordCue[];
+  chordGrid?:         ChordSection[];
+  chordGridStale?:    boolean;
+  tuningId?:          string;
+  initialBpm?:        number;
+  songKeys?:          SongKey[];
   onYoutubeUrlChange: (url: string) => void;
-  onChordMapChange: (map: ChordCue[]) => void;
+  onChordMapChange:   (map: ChordCue[]) => void;
+  autoPlayFrom?:      number;
+  autoNextMode?:      'skip' | 'play';
+  onSongEnd?:         () => void;
 }
 
 export function PlayerPage({
   songId, songTitle, songArtist, baseSheet,
-  youtubeUrl, chordMap, tuningId, initialBpm, songKeys,
+  youtubeUrl, chordMap, chordGrid, chordGridStale, tuningId, initialBpm, songKeys,
   onYoutubeUrlChange, onChordMapChange,
+  autoPlayFrom, autoNextMode, onSongEnd,
 }: PlayerPageProps) {
   const tuning = getTuning(tuningId ?? 'standard');
 
   // ─── Music theory ─────────────────────────────────────────────────────────────
   const { displaySheet, transpose, capo, detectedKey, transposeUp, transposeDown, setCapo } =
     useSongPlayer(baseSheet, songId);
+
+  // Count-in lives here so auto-skip can share the same instance as the manual button.
+  const { startCountIn, cancelCountIn, isCountingIn, currentBeat, beatsTotal } =
+    useCountIn(initialBpm ?? 120);
 
   // Metronome state lives entirely inside <Metronome> — no hook needed here.
 
@@ -520,7 +595,10 @@ export function PlayerPage({
   useEffect(() => { prevIdxRef.current = -1; setActiveChordIndex(-1); }, [videoId, songId]);
 
   // ─── Auto-scroll ──────────────────────────────────────────────────────────────
-  const [autoScroll, setAutoScroll] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(() => {
+    const totalChords = extractChords(baseSheet).length;
+    return (chordMap?.length ?? 0) >= totalChords && totalChords > 0;
+  });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -530,11 +608,73 @@ export function PlayerPage({
       ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [activeChordIndex, autoScroll]);
 
+  // ─── Auto-play (after auto-navigation) ───────────────────────────────────────
+  const hasAutoPlayedRef = useRef(false);
+  useEffect(() => {
+    if (autoPlayFrom === undefined || hasAutoPlayedRef.current) return;
+    if (playerStatus === 'ready' && player) {
+      hasAutoPlayedRef.current = true;
+      if (autoNextMode === 'skip') {
+        // always count-in for skip mode, then seek to first chord (even if time is 0)
+        const seekTarget = autoPlayFrom ?? 0;
+        startCountIn(() => {
+          const p = playerRef.current;
+          if (!p) return;
+          if (seekTarget > 0) p.seekTo(seekTarget, true);
+          p.playVideo();
+        });
+      } else {
+        player.playVideo();
+      }
+    }
+  }, [playerStatus, player, autoPlayFrom, startCountIn]);
+
+  // ─── Song-end → trigger auto-next ────────────────────────────────────────────
+  const onSongEndRef      = useRef(onSongEnd);
+  onSongEndRef.current    = onSongEnd;
+  const hasExitedRef      = useRef(false); // guards against double-navigation
+  const lastChordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // auto-skip: when chordMap is complete and last chord is active,
+  // exit early if >5 s remain; otherwise let the video end naturally.
+  useEffect(() => {
+    if (autoNextMode !== 'skip' || hasExitedRef.current) return;
+    if (!chordMap?.length) return;
+    const totalChords = extractChords(baseSheet).length;
+    if (chordMap.length < totalChords) return; // partial sync — skip this logic
+
+    const lastChordIdx = chordMap.length - 1;
+    if (activeChordIndex !== lastChordIdx) return;
+
+    const duration      = playerRef.current?.getDuration?.() ?? 0;
+    const lastChordTime = chordMap[lastChordIdx].time;
+    const remaining     = duration > 0 ? duration - lastChordTime : 0;
+    if (remaining <= 5) return; // close enough to the end — let video finish
+
+    hasExitedRef.current = true;
+    lastChordTimerRef.current = setTimeout(() => {
+      onSongEndRef.current?.();
+    }, 5000);
+  }, [activeChordIndex, autoNextMode, chordMap, baseSheet]);
+
+  // Clean up the timer if the component unmounts before it fires.
+  useEffect(() => () => {
+    if (lastChordTimerRef.current !== null) clearTimeout(lastChordTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (playerStatus === 'ended' && !hasExitedRef.current) {
+      hasExitedRef.current = true;
+      onSongEndRef.current?.();
+    }
+  }, [playerStatus]);
+
   // ─── Tap-sync ────────────────────────────────────────────────────────────────
-  const [tapOpen, setTapOpen] = useState(false);
+  const [tapOpen,  setTapOpen]  = useState(false);
+  const [gridOpen, setGridOpen] = useState(false);
   const tapChords = extractChords(displaySheet);
 
-  useEffect(() => { setTapOpen(false); }, [songId]);
+  useEffect(() => { setTapOpen(false); setGridOpen(false); }, [songId]);
 
   // ─── YouTube callbacks ────────────────────────────────────────────────────────
   const handlePlayerReady = useCallback((p: YTPlayer) => {
@@ -690,6 +830,16 @@ export function PlayerPage({
         </div>
       )}
 
+      {/* Stale chord grid warning */}
+      {chordGridStale && (
+        <div className="flex items-center gap-2 px-4 py-2
+          bg-amber-950/30 border-b border-amber-800/30">
+          <span className="text-xs text-amber-500/80 flex-1">
+            Chord grid may be outdated — edit the song to rebuild it.
+          </span>
+        </div>
+      )}
+
       {/* Custom audio controls — visible whenever a video is loaded */}
       {videoId && (
         <YouTubeAudioControls
@@ -697,6 +847,12 @@ export function PlayerPage({
           status={playerStatus}
           playerError={playerError}
           onRemove={handleRemoveVideo}
+          chordMap={chordMap}
+          startCountIn={startCountIn}
+          cancelCountIn={cancelCountIn}
+          isCountingIn={isCountingIn}
+          currentBeat={currentBeat}
+          beatsTotal={beatsTotal}
         />
       )}
     </div>
@@ -715,6 +871,12 @@ export function PlayerPage({
           onSave={(map) => { onChordMapChange(map); setTapOpen(false); }}
           onClose={() => setTapOpen(false)}
         />
+      ) : gridOpen ? (
+        <ChordGridPlayer
+          grid={chordGrid ?? []}
+          initialBpm={initialBpm}
+          onClose={() => setGridOpen(false)}
+        />
       ) : selectedKey ? (
         <>
           <div className="flex-1 overflow-y-auto overscroll-contain">
@@ -731,6 +893,8 @@ export function PlayerPage({
             onAutoScroll={() => { }}
             onTapSync={() => setTapOpen(true)}
             canTapSync={!!player && tapChords.length > 0}
+            onGrid={() => setGridOpen(true)}
+            hasGrid={!!chordGrid?.length}
           />
           {panelChord && (
             <div
@@ -768,6 +932,8 @@ export function PlayerPage({
             onAutoScroll={() => setAutoScroll((a) => !a)}
             onTapSync={() => setTapOpen(true)}
             canTapSync={!!player && tapChords.length > 0}
+            onGrid={() => setGridOpen(true)}
+            hasGrid={!!chordGrid?.length}
           />
         </>
       )}
@@ -930,6 +1096,35 @@ function ChordCard({ info, isUsed, onClick }: ChordCardProps) {
   );
 }
 
+// ─── Count-in components ──────────────────────────────────────────────────────
+
+function CountInBeats({ beat, total }: { beat: number; total: number }) {
+  return (
+    <div className="flex gap-0.5 items-center justify-center">
+      {Array.from({ length: total }, (_, i) => (
+        <div
+          key={i}
+          className={[
+            'rounded-full transition-all duration-75',
+            beat === i ? 'w-2 h-2 bg-amber-400' : 'w-1.5 h-1.5 bg-zinc-600',
+          ].join(' ')}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CountInPlayIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <rect x="1" y="5" width="2" height="14" rx="1" opacity="0.7" />
+      <rect x="5" y="7" width="2" height="10" rx="1" opacity="0.5" />
+      <rect x="9" y="9" width="2" height="6" rx="1" opacity="0.3" />
+      <polygon points="14,5 22,12 14,19" />
+    </svg>
+  );
+}
+
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
 function PlayIcon() {
@@ -1015,6 +1210,18 @@ function CloseIcon() {
       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function GridIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
     </svg>
   );
 }

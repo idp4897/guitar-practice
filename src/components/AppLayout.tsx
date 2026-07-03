@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ThemeToggle } from './ThemeToggle';
 
 export interface Song {
@@ -10,14 +11,59 @@ export interface Song {
   artist?: string;
 }
 
-interface AppLayoutProps {
-  songs:         Song[];
-  activeSongId?: string;
-  children:      React.ReactNode;
+interface SidebarCollection {
+  id:      string;
+  name:    string;
+  songIds: string[];
 }
 
-export function AppLayout({ songs, activeSongId, children }: AppLayoutProps) {
+interface AppLayoutProps {
+  songs:       Song[];
+  collections: SidebarCollection[];
+  children:    React.ReactNode;
+}
+
+export function AppLayout({ songs, collections, children }: AppLayoutProps) {
+  const pathname     = usePathname();
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const collectionId = searchParams.get('collectionId');
+  const autoNext     = searchParams.get('autoNext') as 'skip' | 'play' | null;
+
+  const songSegment  = pathname.split('/')[2];
+  const activeSongId = songSegment && songSegment !== 'new' ? songSegment : undefined;
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const setAutoNext = (mode: 'skip' | 'play' | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (mode) params.set('autoNext', mode);
+    else params.delete('autoNext');
+    params.delete('_auto');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  };
+
+  const activeCollection = collectionId
+    ? collections.find((c) => c.id === collectionId) ?? null
+    : null;
+
+  const displayedSongs = activeCollection
+    ? songs.filter((s) => activeCollection.songIds.includes(s.id))
+    : songs;
+
+  const filteredSongs = search.trim()
+    ? displayedSongs.filter((s) => {
+        const q = search.normalize('NFC').toLowerCase();
+        return (
+          s.title.normalize('NFC').toLowerCase().includes(q) ||
+          (s.artist?.normalize('NFC').toLowerCase().includes(q) ?? false)
+        );
+      })
+    : displayedSongs;
+
+  const songHref = (id: string) =>
+    activeCollection ? `/songs/${id}?collectionId=${activeCollection.id}` : `/songs/${id}`;
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 dark:bg-zinc-950 text-zinc-100">
@@ -41,18 +87,34 @@ export function AppLayout({ songs, activeSongId, children }: AppLayoutProps) {
 
         {/* Sidebar header */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-zinc-800">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="text-sm font-semibold text-zinc-300 uppercase tracking-wider
-              hover:text-zinc-100 transition-colors">
-              Songs
-            </Link>
-            <Link href="/collections" onClick={() => setSidebarOpen(false)}
-              className="text-xs font-medium text-zinc-600 uppercase tracking-wider
-                hover:text-zinc-400 transition-colors">
-              Collections
-            </Link>
-          </div>
-          <div className="flex items-center gap-1">
+          {activeCollection ? (
+            <div className="flex items-center gap-2 min-w-0">
+              <Link
+                href="/"
+                onClick={() => setSidebarOpen(false)}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+                aria-label="Back to all songs"
+              >
+                <BackIcon />
+              </Link>
+              <span className="text-sm font-semibold text-amber-400 truncate">
+                {activeCollection.name}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <Link href="/" className="text-sm font-semibold text-zinc-300 uppercase tracking-wider
+                hover:text-zinc-100 transition-colors">
+                Songs
+              </Link>
+              <Link href="/collections" onClick={() => setSidebarOpen(false)}
+                className="text-xs font-medium text-zinc-600 uppercase tracking-wider
+                  hover:text-zinc-400 transition-colors">
+                Collections
+              </Link>
+            </div>
+          )}
+          <div className="flex items-center gap-1 shrink-0">
             <Link
               href="/songs/new"
               onClick={() => setSidebarOpen(false)}
@@ -73,15 +135,67 @@ export function AppLayout({ songs, activeSongId, children }: AppLayoutProps) {
           </div>
         </div>
 
+        {/* Search */}
+        <div className="px-3 py-2 border-b border-zinc-800">
+          <div className="relative">
+            <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+            <input
+              type="text"
+              placeholder={activeCollection ? `Search in ${activeCollection.name}…` : 'Search songs…'}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md
+                bg-zinc-800 border border-zinc-700 text-zinc-200 placeholder-zinc-500
+                focus:outline-none focus:border-amber-400 transition-colors"
+            />
+          </div>
+        </div>
+
+        {/* Auto-next toggle group (collection mode only) */}
+        {activeCollection && (
+          <div className="px-3 py-2 border-b border-zinc-800">
+            <p className="text-[10px] text-zinc-600 uppercase tracking-wider font-medium mb-1.5">
+              Auto-next
+            </p>
+            <div className="flex rounded-lg overflow-hidden border border-zinc-700">
+              {([
+                { value: null,   label: 'Manual' },
+                { value: 'play', label: 'Auto' },
+                { value: 'skip', label: 'Skip' },
+              ] as const).map(({ value, label }) => {
+                const active = autoNext === value;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setAutoNext(value)}
+                    className={[
+                      'flex-1 py-1.5 text-xs font-medium transition-colors touch-manipulation select-none',
+                      active
+                        ? 'bg-amber-500 text-zinc-950'
+                        : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800',
+                    ].join(' ')}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Song list */}
         <nav className="flex-1 overflow-y-auto py-2">
-          {songs.length === 0 && (
+          {displayedSongs.length === 0 && (
             <p className="px-4 py-3 text-sm text-zinc-500">No songs yet.</p>
           )}
-          {songs.map((song) => (
+          {filteredSongs.length === 0 && displayedSongs.length > 0 && (
+            <p className="px-4 py-3 text-sm text-zinc-500">No results.</p>
+          )}
+          {filteredSongs.map((song) => (
             <Link
               key={song.id}
-              href={`/songs/${song.id}`}
+              href={songHref(song.id)}
               onClick={() => setSidebarOpen(false)}
               className={[
                 'block w-full text-left px-4 py-3 transition-colors',
@@ -150,12 +264,32 @@ function CloseIcon() {
   );
 }
 
+function BackIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
       <line x1="12" y1="5" x2="12" y2="19" />
       <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      className={className}>
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
     </svg>
   );
 }

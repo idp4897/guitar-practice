@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   addSongToCollectionAction,
   deleteCollectionAction,
   removeSongFromCollectionAction,
+  reorderSongsAction,
 } from '@/application/collections/collection.actions';
 import type { StoredCollection } from '@/domain/collections/types';
 import type { StoredSong } from '@/lib/song-store';
@@ -26,8 +27,16 @@ export function CollectionViewPage({
   const [addModalOpen, setAddModalOpen]     = useState(false);
   const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
   const [addSearch, setAddSearch]           = useState('');
+  const [dragIndex, setDragIndex]           = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex]   = useState<number | null>(null);
+  const dragNode = useRef<HTMLDivElement | null>(null);
+  const [shuffle, setShuffle]   = useState(false);
+  const [autoSkip, setAutoSkip] = useState(false);
 
-  const collectionSongs = allSongs.filter((s) => collection.songIds.includes(s.id));
+  // Preserve collection.songIds order
+  const collectionSongs = collection.songIds
+    .map((id) => allSongs.find((s) => s.id === id))
+    .filter((s): s is StoredSong => s !== undefined);
   const availableSongs  = allSongs.filter((s) => !collection.songIds.includes(s.id));
 
   const filteredAvailable = addSearch.trim()
@@ -74,6 +83,60 @@ export function CollectionViewPage({
     setSelectedSongIds((prev) =>
       prev.includes(songId) ? prev.filter((id) => id !== songId) : [...prev, songId],
     );
+  }
+
+  function handleDragStart(e: React.DragEvent<HTMLDivElement>, index: number) {
+    dragNode.current = e.currentTarget;
+    setDragIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>, index: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (index !== dragOverIndex) setDragOverIndex(index);
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>, index: number) {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === index) {
+      setDragIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+    const newSongIds = [...collection.songIds];
+    const [moved] = newSongIds.splice(dragIndex, 1);
+    newSongIds.splice(index, 0, moved);
+    setCollection((prev) => ({ ...prev, songIds: newSongIds }));
+    setDragIndex(null);
+    setDragOverIndex(null);
+    startTransition(() => reorderSongsAction(collection.id, newSongIds));
+  }
+
+  function handleDragEnd() {
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }
+
+  function handlePlayAll() {
+    if (collectionSongs.length === 0) return;
+    const ids = collectionSongs.map((s) => s.id);
+    let order: string[];
+    if (shuffle) {
+      order = [...ids];
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+    } else {
+      order = ids;
+    }
+    const params = new URLSearchParams({
+      collectionId: collection.id,
+      autoNext: autoSkip ? 'skip' : 'play',
+    });
+    if (shuffle) params.set('songOrder', order.join(','));
+    router.push(`/songs/${order[0]}?${params.toString()}`);
   }
 
   return (
@@ -126,11 +189,48 @@ export function CollectionViewPage({
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {/* Song count + Add button */}
-        <div className="flex items-center gap-3 mb-4">
+        {/* Song count + Play All + checkboxes + Add button */}
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
           <span className="text-sm text-zinc-500">
             {collectionSongs.length} {collectionSongs.length === 1 ? 'song' : 'songs'}
           </span>
+
+          {collectionSongs.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={handlePlayAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                  bg-amber-500 text-zinc-950 hover:bg-amber-400 transition-colors"
+              >
+                <PlayAllIcon />
+                Play All
+              </button>
+
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={shuffle}
+                  onChange={(e) => setShuffle(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
+                />
+                <span className="text-xs text-zinc-400">Shuffle</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoSkip}
+                  onChange={(e) => setAutoSkip(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
+                />
+                <span className="text-xs text-zinc-400">Auto-skip</span>
+              </label>
+            </>
+          )}
+
+          <div className="flex-1" />
+
           {availableSongs.length > 0 && (
             <button
               type="button"
@@ -161,12 +261,29 @@ export function CollectionViewPage({
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {collectionSongs.map((song) => (
+            {collectionSongs.map((song, index) => (
               <div
                 key={song.id}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl
-                  bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors"
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDrop={(e) => handleDrop(e, index)}
+                onDragEnd={handleDragEnd}
+                className={[
+                  'flex items-center gap-3 px-4 py-3 rounded-xl transition-colors',
+                  'bg-zinc-900 border border-zinc-800',
+                  dragIndex === index ? 'opacity-40' : '',
+                  dragOverIndex === index && dragIndex !== index
+                    ? 'border-amber-500/50 bg-amber-500/5'
+                    : 'hover:border-zinc-700',
+                ].join(' ')}
               >
+                <div
+                  className="shrink-0 cursor-grab active:cursor-grabbing text-zinc-600 hover:text-zinc-400 touch-none"
+                  title="Drag to reorder"
+                >
+                  <DragHandleIcon />
+                </div>
                 <Link href={`/songs/${song.id}`} className="flex-1 min-w-0">
                   <p className="font-medium text-zinc-100 truncate">{song.title}</p>
                   {song.artist && (
@@ -299,5 +416,28 @@ export function CollectionViewPage({
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Icons ────────────────────────────────────────────────────────────────────
+
+function PlayAllIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="5,3 19,12 5,21" />
+    </svg>
+  );
+}
+
+function DragHandleIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="9" cy="6"  r="1.5" />
+      <circle cx="15" cy="6"  r="1.5" />
+      <circle cx="9" cy="12" r="1.5" />
+      <circle cx="15" cy="12" r="1.5" />
+      <circle cx="9" cy="18" r="1.5" />
+      <circle cx="15" cy="18" r="1.5" />
+    </svg>
   );
 }

@@ -10,6 +10,7 @@ import {
 } from '@/application/collections/collection.actions';
 import { TUNINGS, getTuning } from '@/domain/music/tuning';
 import { filterSongs } from '@/domain/songs/filter';
+import { parseChordPro, extractChords } from '@/domain/music/chordpro';
 import type { StoredSong } from '@/lib/song-store';
 import type { StoredCollection } from '@/domain/collections/types';
 
@@ -104,14 +105,6 @@ export function LibraryPage({ songs, collections: initialCollections }: LibraryP
           <div className="flex-1" />
 
           <Link
-            href="/collections"
-            className="px-3 py-2 rounded-xl text-sm font-medium
-              text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors touch-manipulation"
-          >
-            Collections
-          </Link>
-
-          <Link
             href="/songs/new"
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl shrink-0
               bg-amber-500 text-zinc-950 text-sm font-semibold
@@ -157,43 +150,83 @@ export function LibraryPage({ songs, collections: initialCollections }: LibraryP
         )}
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-6">
-        {hasFilters && (
-          <div className="flex items-center gap-3 mb-4 text-sm">
-            <span className="text-zinc-400">
-              {filtered.length} {filtered.length === 1 ? 'song' : 'songs'}
-            </span>
-            <button type="button" onClick={clearFilters}
-              className="text-xs text-zinc-600 hover:text-zinc-300 transition-colors">
-              Clear filters ×
-            </button>
-          </div>
-        )}
+      <main className="max-w-5xl mx-auto px-4 py-6 space-y-10">
 
-        {songs.length === 0 ? (
-          <EmptyState />
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center py-16 gap-4 text-center">
-            <p className="text-zinc-500">No songs match your filters</p>
-            <button type="button" onClick={clearFilters}
-              className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-400 text-sm
-                hover:bg-zinc-700 hover:text-zinc-200 transition-colors">
-              Clear filters
-            </button>
+        {/* Collections section */}
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Collections</h2>
+            <Link
+              href="/collections/new"
+              className="flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-300 transition-colors"
+            >
+              <PlusIcon />
+              New
+            </Link>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((song) => (
-              <SongCard
-                key={song.id}
-                song={song}
-                collections={collections}
-                onCollectionToggle={handleToggleCollection}
-                onCollectionOpen={() => setCollModalSongId(song.id)}
-              />
-            ))}
+
+          {collections.length === 0 ? (
+            <div className="flex flex-col items-center py-8 gap-3 rounded-2xl
+              border border-dashed border-zinc-800 text-center">
+              <p className="text-sm text-zinc-600">No collections yet</p>
+              <Link
+                href="/collections/new"
+                className="text-sm text-amber-400 hover:text-amber-300 transition-colors"
+              >
+                Create your first collection →
+              </Link>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {collections.map((coll) => (
+                <CollectionCard key={coll.id} collection={coll} songs={songs} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Songs section */}
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Songs</h2>
+            {hasFilters && (
+              <div className="flex items-center gap-3 text-sm">
+                <span className="text-zinc-500">
+                  {filtered.length} {filtered.length === 1 ? 'song' : 'songs'}
+                </span>
+                <button type="button" onClick={clearFilters}
+                  className="text-xs text-zinc-600 hover:text-zinc-300 transition-colors">
+                  Clear ×
+                </button>
+              </div>
+            )}
           </div>
-        )}
+
+          {songs.length === 0 ? (
+            <EmptyState />
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center py-16 gap-4 text-center">
+              <p className="text-zinc-500">No songs match your filters</p>
+              <button type="button" onClick={clearFilters}
+                className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-400 text-sm
+                  hover:bg-zinc-700 hover:text-zinc-200 transition-colors">
+                Clear filters
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filtered.map((song) => (
+                <SongCard
+                  key={song.id}
+                  song={song}
+                  collections={collections}
+                  onCollectionToggle={handleToggleCollection}
+                  onCollectionOpen={() => setCollModalSongId(song.id)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       </main>
 
       {/* Add to collection modal */}
@@ -206,6 +239,75 @@ export function LibraryPage({ songs, collections: initialCollections }: LibraryP
           pending={collPending}
         />
       )}
+    </div>
+  );
+}
+
+// ─── Collection Card ──────────────────────────────────────────────────────────
+
+function CollectionCard({
+  collection,
+  songs,
+}: {
+  collection: StoredCollection;
+  songs:      StoredSong[];
+}) {
+  const songCount   = collection.songIds.length;
+  const firstSongId = collection.songIds[0];
+  const href = firstSongId
+    ? `/songs/${firstSongId}?collectionId=${collection.id}`
+    : `/collections/${collection.id}`;
+
+  return (
+    <div className="group relative flex flex-col gap-2 p-4 rounded-2xl
+      bg-zinc-900 border border-zinc-800
+      hover:border-zinc-700 hover:bg-zinc-800/50 transition-all">
+
+      <Link href={href} className="absolute inset-0 rounded-2xl" />
+
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-semibold text-zinc-100 leading-snug truncate group-hover:text-amber-400 transition-colors">
+          {collection.name}
+        </p>
+        <span className="shrink-0 text-xs text-zinc-500 tabular-nums">
+          {songCount} {songCount === 1 ? 'song' : 'songs'}
+        </span>
+      </div>
+
+      {collection.description && (
+        <p className="text-xs text-zinc-500 line-clamp-2">{collection.description}</p>
+      )}
+
+      {collection.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {collection.tags.slice(0, 3).map((tag) => (
+            <span key={tag}
+              className="px-1.5 py-0.5 rounded-full text-xs bg-zinc-800 border border-zinc-700 text-zinc-500">
+              {tag}
+            </span>
+          ))}
+          {collection.tags.length > 3 && (
+            <span className="text-xs text-zinc-600">+{collection.tags.length - 3}</span>
+          )}
+        </div>
+      )}
+
+      <div className="relative z-10 flex justify-end gap-1 mt-auto">
+        <Link
+          href={`/collections/${collection.id}`}
+          className="px-2.5 py-1 rounded-lg text-xs text-zinc-600
+            hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
+        >
+          View
+        </Link>
+        <Link
+          href={`/collections/${collection.id}/edit`}
+          className="px-2.5 py-1 rounded-lg text-xs text-zinc-600
+            hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
+        >
+          Edit
+        </Link>
+      </div>
     </div>
   );
 }
@@ -321,8 +423,15 @@ function SongCard({
 }) {
   const [pending, startTransition] = useTransition();
   const key    = song.preferredKey || song.originalKey;
-  const hasSync = !!song.chordMap?.length;
   const tuning  = song.tuning && song.tuning !== 'standard' ? getTuning(song.tuning) : null;
+
+  const totalChords  = extractChords(parseChordPro(song.content)).length;
+  const syncedCount  = song.chordMap?.length ?? 0;
+  const syncStatus   = syncedCount === 0
+    ? 'unsync'
+    : syncedCount >= totalChords
+    ? 'full'
+    : 'partial';
   const collCount = collections.filter((c) => c.songIds.includes(song.id)).length;
 
   const handleDelete = () => {
@@ -356,13 +465,7 @@ function SongCard({
               {key}
             </span>
           )}
-          {hasSync && (
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium
-              bg-green-500/10 text-green-400 border border-green-500/20"
-              title="YouTube sync recorded">
-              YT
-            </span>
-          )}
+          <SyncTag status={syncStatus} synced={syncedCount} total={totalChords} />
         </div>
       </div>
 
@@ -427,6 +530,50 @@ function EmptyState() {
         Add first song
       </Link>
     </div>
+  );
+}
+
+// ─── Sync Tag ────────────────────────────────────────────────────────────────
+
+function SyncTag({
+  status,
+  synced,
+  total,
+}: {
+  status: 'unsync' | 'partial' | 'full';
+  synced: number;
+  total:  number;
+}) {
+  if (status === 'full') {
+    return (
+      <span
+        className="px-2 py-0.5 rounded-full text-xs font-medium
+          bg-green-500/10 text-green-400 border border-green-500/20"
+        title={`Fully synced (${synced}/${total} chords)`}
+      >
+        synced
+      </span>
+    );
+  }
+  if (status === 'partial') {
+    return (
+      <span
+        className="px-2 py-0.5 rounded-full text-xs font-medium
+          bg-amber-500/10 text-amber-400 border border-amber-500/20"
+        title={`Partially synced (${synced}/${total} chords)`}
+      >
+        partial
+      </span>
+    );
+  }
+  return (
+    <span
+      className="px-2 py-0.5 rounded-full text-xs font-medium
+        bg-zinc-800 text-zinc-600 border border-zinc-700"
+      title="No sync data"
+    >
+      no sync
+    </span>
   );
 }
 

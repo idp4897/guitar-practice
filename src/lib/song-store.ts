@@ -1,22 +1,24 @@
 import { randomUUID } from 'crypto';
 import { getDb, ensureDb } from '@/lib/db';
-import type { ChordCue, SongKey } from '@/domain/music/types';
+import type { ChordCue, ChordSection, SongKey } from '@/domain/music/types';
 
 export interface StoredSong {
-  id:            string;
-  title:         string;
-  artist?:       string;
-  originalKey?:  string;
-  preferredKey?: string;
-  capo:          number;
-  tuning?:       string;
-  content:       string;
-  bpm?:          number;
-  keys?:         SongKey[];
-  youtubeUrl?:   string;
-  chordMap?:     ChordCue[];
-  createdAt:     string;
-  updatedAt:     string;
+  id:                    string;
+  title:                 string;
+  artist?:               string;
+  originalKey?:          string;
+  preferredKey?:         string;
+  capo:                  number;
+  tuning?:               string;
+  content:               string;
+  bpm?:                  number;
+  keys?:                 SongKey[];
+  youtubeUrl?:           string;
+  chordMap?:             ChordCue[];
+  chordGrid?:            ChordSection[];
+  chordGridContentHash?: string;
+  createdAt:             string;
+  updatedAt:             string;
 }
 
 export type CreateSongInput = Omit<StoredSong, 'id' | 'createdAt' | 'updatedAt'>;
@@ -35,10 +37,12 @@ function rowToSong(row: Record<string, any>): StoredSong {
     content:      row.content as string,
     bpm:          (row.bpm as number | null) ?? undefined,
     keys:         row.keys ? (JSON.parse(row.keys as string) as SongKey[]) : undefined,
-    youtubeUrl:   (row.youtube_url as string | null) ?? undefined,
-    chordMap:     row.chord_map ? (JSON.parse(row.chord_map as string) as ChordCue[]) : undefined,
-    createdAt:    row.created_at as string,
-    updatedAt:    row.updated_at as string,
+    youtubeUrl:           (row.youtube_url as string | null) ?? undefined,
+    chordMap:             row.chord_map ? (JSON.parse(row.chord_map as string) as ChordCue[]) : undefined,
+    chordGrid:            row.chord_grid ? (JSON.parse(row.chord_grid as string) as ChordSection[]) : undefined,
+    chordGridContentHash: (row.chord_grid_content_hash as string | null) ?? undefined,
+    createdAt:            row.created_at as string,
+    updatedAt:            row.updated_at as string,
   };
 }
 
@@ -65,14 +69,17 @@ export const songStore = {
     await getDb().execute({
       sql: `INSERT INTO songs
               (id, title, artist, content, capo, tuning, bpm, youtube_url,
-               preferred_key, original_key, keys, chord_map, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+               preferred_key, original_key, keys, chord_map,
+               chord_grid, chord_grid_content_hash, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       args: [
         song.id, song.title, song.artist ?? null, song.content, song.capo,
         song.tuning ?? null, song.bpm ?? null, song.youtubeUrl ?? null,
         song.preferredKey ?? null, song.originalKey ?? null,
         song.keys ? JSON.stringify(song.keys) : null,
         song.chordMap ? JSON.stringify(song.chordMap) : null,
+        song.chordGrid ? JSON.stringify(song.chordGrid) : null,
+        song.chordGridContentHash ?? null,
         song.createdAt, song.updatedAt,
       ],
     });
@@ -88,7 +95,8 @@ export const songStore = {
       sql: `UPDATE songs SET
               title = ?, artist = ?, content = ?, capo = ?, tuning = ?,
               bpm = ?, youtube_url = ?, preferred_key = ?, original_key = ?,
-              keys = ?, chord_map = ?, updated_at = ?
+              keys = ?, chord_map = ?, chord_grid = ?, chord_grid_content_hash = ?,
+              updated_at = ?
             WHERE id = ?`,
       args: [
         updated.title, updated.artist ?? null, updated.content, updated.capo,
@@ -96,6 +104,8 @@ export const songStore = {
         updated.preferredKey ?? null, updated.originalKey ?? null,
         updated.keys ? JSON.stringify(updated.keys) : null,
         updated.chordMap ? JSON.stringify(updated.chordMap) : null,
+        updated.chordGrid ? JSON.stringify(updated.chordGrid) : null,
+        updated.chordGridContentHash ?? null,
         updated.updatedAt, id,
       ],
     });

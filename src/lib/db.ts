@@ -19,6 +19,10 @@ export function ensureDb(): Promise<void> {
   return _ready;
 }
 
+async function tryAlter(sql: string): Promise<void> {
+  try { await getDb().execute(sql); } catch { /* column already exists */ }
+}
+
 async function initSchema(): Promise<void> {
   await getDb().executeMultiple(`
     CREATE TABLE IF NOT EXISTS songs (
@@ -56,4 +60,6 @@ async function initSchema(): Promise<void> {
       FOREIGN KEY (song_id)       REFERENCES songs(id)       ON DELETE CASCADE
     );
   `);
+  await tryAlter('ALTER TABLE songs ADD COLUMN chord_grid TEXT');
+  await tryAlter('ALTER TABLE songs ADD COLUMN chord_grid_content_hash TEXT');
 }

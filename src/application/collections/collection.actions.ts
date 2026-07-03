@@ -58,3 +58,10 @@ export async function removeSongFromCollectionAction(
   revalidatePath('/collections');
   revalidatePath(`/collections/${collectionId}`);
 }
+
+export async function reorderSongsAction(collectionId: string, songIds: string[]): Promise<void> {
+  await collectionStore.reorderSongs(collectionId, songIds);
+  revalidatePath('/');
+  revalidatePath('/collections');
+  revalidatePath(`/collections/${collectionId}`);
+}

@@ -29,8 +29,10 @@ export interface UseMetronomeReturn {
   bpm:                number;
   timeSignature:      TimeSignature;
   currentBeat:        number;   // 0-indexed beat within bar; -1 when stopped
+  absoluteBeat:       number;   // total beats since start; -1 when stopped
   currentAccent:      AccentLevel | null;
   toggle:             () => Promise<void>;
+  stop:               () => void;
   setBpm:             (bpm: number) => void;
   setTimeSignature:   (ts: TimeSignature) => void;
   /** Override accents for irregular time (5/8, 7/8) with a specific grouping. */
@@ -46,11 +48,12 @@ export function useMetronome(
   const ctxRef = useRef<AudioContext | null>(null);
 
   // ── Scheduler state (refs only — never trigger re-renders) ──────────────────
-  const timerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nextTimeRef  = useRef(0);
-  const beatCountRef = useRef(0);
-  const isRunningRef = useRef(false);
-  const genRef       = useRef(0);
+  const timerRef        = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nextTimeRef     = useRef(0);
+  const beatCountRef    = useRef(0);
+  const absBeatCountRef = useRef(-1);
+  const isRunningRef    = useRef(false);
+  const genRef          = useRef(0);
 
   // ── Mutable copies of controlled settings ───────────────────────────────────
   const bpmRef      = useRef(initialBpm);
@@ -62,6 +65,7 @@ export function useMetronome(
   const [bpm,            setBpmState]        = useState(initialBpm);
   const [timeSignature,  setTsSigState]      = useState<TimeSignature>(tsSigRef.current);
   const [currentBeat,    setCurrentBeat]     = useState(-1);
+  const [absoluteBeat,   setAbsoluteBeat]    = useState(-1);
   const [currentAccent,  setCurrentAccent]   = useState<AccentLevel | null>(null);
   const [activeGrouping, setActiveGrouping]  = useState<number[] | null>(null);
 
@@ -118,6 +122,8 @@ export function useMetronome(
     const delayMs = Math.max(0, (time - ctx.currentTime) * 1000);
     setTimeout(() => {
       if (genRef.current !== gen) return;
+      absBeatCountRef.current++;
+      setAbsoluteBeat(absBeatCountRef.current);
       setCurrentBeat(beat);
       setCurrentAccent(accent);
     }, delayMs);
@@ -155,10 +161,12 @@ export function useMetronome(
     const ctx = ctxRef.current;
     if (ctx.state === 'suspended') await ctx.resume();
 
-    isRunningRef.current = true;
-    beatCountRef.current = 0;
-    nextTimeRef.current  = ctx.currentTime + 0.05;
+    isRunningRef.current    = true;
+    beatCountRef.current    = 0;
+    absBeatCountRef.current = -1;
+    nextTimeRef.current     = ctx.currentTime + 0.05;
 
+    setAbsoluteBeat(-1);
     setIsPlaying(true);
     scheduler();
   }, [scheduler]);
@@ -174,6 +182,7 @@ export function useMetronome(
 
     setIsPlaying(false);
     setCurrentBeat(-1);
+    setAbsoluteBeat(-1);
     setCurrentAccent(null);
   }, []);
 
@@ -191,8 +200,10 @@ export function useMetronome(
     bpm,
     timeSignature,
     currentBeat,
+    absoluteBeat,
     currentAccent,
     toggle,
+    stop,
     setBpm,
     setTimeSignature,
     setGrouping,

@@ -4,17 +4,26 @@ import { useCallback, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { extractChords, parseChordPro } from '@/domain/music/chordpro';
 import { detectKeyBySection, detectPossibleKeys, formatSongKey, parseSongKey } from '@/domain/music/theory';
-import type { SectionAnalysisResult, SongKey } from '@/domain/music/types';
+import type { ChordSection, SectionAnalysisResult, SongKey } from '@/domain/music/types';
 import { getTuning, TUNINGS } from '@/domain/music/tuning';
 import { validateBpm } from '@/domain/music/bpm';
 import { createSongAction, updateSongAction } from '@/application/songs/song.actions';
+import { deriveChordGrid } from '@/domain/music/chordgrid';
 import { ChordSheetViewer } from './ChordSheetViewer';
+import { ChordGridEditor } from './ChordGridEditor';
 import { ChordPlacer } from './ChordPlacer';
+import { ChordProgressionBuilder } from './ChordProgressionBuilder';
 import type { KeyCandidate } from '@/domain/music/types';
 import type { StoredSong } from '@/lib/song-store';
 
 const CAPO_MAX = 12;
 const TAP_MAX_GAP_MS = 2500;
+
+function hashStr(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) ^ s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
 
 interface SongEditorProps {
   song?: StoredSong;
@@ -39,9 +48,12 @@ export function SongEditor({ song }: SongEditorProps) {
   const [newKeyLabel,  setNewKeyLabel]  = useState('');
   const [youtubeUrl,   setYoutubeUrl]   = useState(song?.youtubeUrl   ?? '');
   const [content,      setContent]      = useState(song?.content      ?? '');
+  const [chordGrid,    setChordGrid]    = useState<ChordSection[]>(song?.chordGrid ?? []);
+  const [chordGridHash, setChordGridHash] = useState(song?.chordGridContentHash);
   const [error,        setError]        = useState<string | null>(null);
-  const [activeTab,    setActiveTab]    = useState<'form' | 'preview' | 'visual'>('form');
-  const [rightPanel,   setRightPanel]   = useState<'preview' | 'visual'>('preview');
+  const [activeTab,    setActiveTab]    = useState<'form' | 'preview' | 'visual' | 'grid'>('form');
+  const [rightPanel,   setRightPanel]   = useState<'preview' | 'visual' | 'grid'>('preview');
+  const [showBuilder,  setShowBuilder]  = useState(false);
   const [pending,      startTransition] = useTransition();
 
   const tapTimesRef = useRef<number[]>([]);
@@ -71,22 +83,44 @@ export function SongEditor({ song }: SongEditorProps) {
     }
   }, []);
 
+  const handleAutoBuild = useCallback(() => {
+    const derived = deriveChordGrid(preview);
+    if (derived.length === 0) return;
+    setChordGrid(derived);
+    setChordGridHash(hashStr(content));
+  }, [preview, content]);
+
+  const handleProgressionInsert = useCallback((text: string, section: ChordSection) => {
+    setContent(prev => {
+      const trimmed = prev.trimEnd();
+      const next = trimmed ? trimmed + '\n' + text : text;
+      setChordGrid(g => {
+        const newGrid = [...g, section];
+        setChordGridHash(hashStr(next));
+        return newGrid;
+      });
+      return next;
+    });
+  }, []);
+
   const handleSave = useCallback(() => {
     if (!title.trim()) { setError('Title is required.'); return; }
     setError(null);
 
     const input = {
-      title:        title.trim(),
-      artist:       artist.trim()     || undefined,
-      originalKey:  candidates[0]?.key || undefined,
-      preferredKey: userKey           || undefined,
+      title:                title.trim(),
+      artist:               artist.trim()     || undefined,
+      originalKey:          candidates[0]?.key || undefined,
+      preferredKey:         userKey           || undefined,
       capo,
-      tuning:       tuningId !== 'standard' ? tuningId : undefined,
-      bpm:          validateBpm(bpmInput) ?? undefined,
-      keys:         keys.length > 0 ? keys : undefined,
+      tuning:               tuningId !== 'standard' ? tuningId : undefined,
+      bpm:                  validateBpm(bpmInput) ?? undefined,
+      keys:                 keys.length > 0 ? keys : undefined,
       content,
-      youtubeUrl:   youtubeUrl.trim() || undefined,
-      chordMap:     song?.chordMap,
+      youtubeUrl:           youtubeUrl.trim() || undefined,
+      chordMap:             song?.chordMap,
+      chordGrid:            chordGrid.length > 0 ? chordGrid : undefined,
+      chordGridContentHash: chordGrid.length > 0 ? chordGridHash : undefined,
     };
 
     startTransition(async () => {
@@ -110,7 +144,7 @@ export function SongEditor({ song }: SongEditorProps) {
         setError(e instanceof Error ? e.message : 'Failed to save');
       }
     });
-  }, [title, artist, userKey, tuningId, candidates, capo, bpmInput, keys, content, youtubeUrl, isEdit, song]);
+  }, [title, artist, userKey, tuningId, candidates, capo, bpmInput, keys, content, youtubeUrl, chordGrid, chordGridHash, isEdit, song]);
 
   return (
     <div className="flex flex-col h-screen bg-zinc-950 text-zinc-100">
@@ -137,6 +171,7 @@ export function SongEditor({ song }: SongEditorProps) {
             { id: 'form',    label: 'Form'    },
             { id: 'preview', label: 'Preview' },
             { id: 'visual',  label: 'Visual'  },
+            { id: 'grid',    label: 'Grid'    },
           ] as const).map(({ id, label }) => (
             <button
               key={id}
@@ -168,6 +203,24 @@ export function SongEditor({ song }: SongEditorProps) {
       {error && (
         <div className="shrink-0 px-4 py-2 bg-red-950 border-b border-red-800">
           <p className="text-sm text-red-400">{error}</p>
+        </div>
+      )}
+
+      {/* Stale chord grid warning */}
+      {chordGrid.length > 0 && chordGridHash && hashStr(content) !== chordGridHash && (
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2
+          bg-amber-950/40 border-b border-amber-800/40">
+          <span className="text-xs text-amber-400 flex-1">
+            Chord grid may be outdated — ChordPro was edited after it was built.
+          </span>
+          <button
+            type="button"
+            onClick={() => { setChordGrid([]); setChordGridHash(undefined); }}
+            className="shrink-0 px-2 py-1 rounded-md text-[10px] text-amber-600
+              hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+          >
+            Clear grid
+          </button>
         </div>
       )}
 
@@ -442,7 +495,39 @@ export function SongEditor({ song }: SongEditorProps) {
             />
           </Field>
 
-          <Field label="ChordPro" className="flex-1">
+          <div className="flex flex-col gap-1.5 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-medium text-zinc-500 uppercase tracking-wide shrink-0">
+                ChordPro
+              </label>
+              <div className="flex gap-1.5 items-center">
+                {extractChords(preview).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleAutoBuild}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium
+                      bg-zinc-800 border border-zinc-700 text-zinc-400
+                      hover:bg-zinc-700 hover:text-zinc-200 transition-colors"
+                    title="Auto-build chord grid from ChordPro content"
+                  >
+                    ⚡ Auto-build grid
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowBuilder(v => !v)}
+                  className={[
+                    'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
+                    showBuilder
+                      ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300'
+                      : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200',
+                  ].join(' ')}
+                  title="Open Chord Progression Builder"
+                >
+                  ♩ Progression
+                </button>
+              </div>
+            </div>
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -454,12 +539,11 @@ export function SongEditor({ song }: SongEditorProps) {
                 'resize-none font-mono text-sm leading-relaxed min-h-[180px]',
               ].join(' ')}
             />
-          </Field>
-
-          <div className="h-2" />
+            <div className="h-20" />
+          </div>
         </div>
 
-        {/* ── Right panel (Preview / Visual) ──────────────────────────────── */}
+        {/* ── Right panel (Preview / Visual / Grid) ───────────────────────── */}
         <div className={[
           'flex-1 flex flex-col min-h-0',
           activeTab === 'form' ? 'hidden md:flex' : 'flex',
@@ -471,6 +555,7 @@ export function SongEditor({ song }: SongEditorProps) {
             {([
               { id: 'preview', label: 'Preview'       },
               { id: 'visual',  label: 'Visual Editor' },
+              { id: 'grid',    label: 'Chord Grid'    },
             ] as const).map(({ id, label }) => (
               <button
                 key={id}
@@ -486,12 +571,6 @@ export function SongEditor({ song }: SongEditorProps) {
               </button>
             ))}
           </div>
-
-          {/*
-            Mobile visibility: controlled by activeTab ('preview' | 'visual').
-            Desktop visibility: controlled by rightPanel ('preview' | 'visual').
-            Each pane uses:  mobile-show  md:desktop-show
-          */}
 
           {/* Preview pane */}
           <div className={[
@@ -523,8 +602,31 @@ export function SongEditor({ song }: SongEditorProps) {
               keyContext={effectiveKey || undefined}
             />
           </div>
+
+          {/* Chord Grid editor pane */}
+          <div className={[
+            'flex-1 min-h-0 flex-col bg-zinc-950',
+            activeTab === 'grid' ? 'flex'    : 'hidden',
+            rightPanel === 'grid' ? 'md:flex' : 'md:hidden',
+          ].join(' ')}>
+            <ChordGridEditor
+              grid={chordGrid}
+              onChange={setChordGrid}
+              onAutoBuild={handleAutoBuild}
+              hasContent={extractChords(preview).length > 0}
+            />
+          </div>
         </div>
       </div>
+
+      {/* Chord Progression Builder — floating panel */}
+      {showBuilder && (
+        <ChordProgressionBuilder
+          onInsert={handleProgressionInsert}
+          onClose={() => setShowBuilder(false)}
+          keyContext={effectiveKey || undefined}
+        />
+      )}
     </div>
   );
 }
