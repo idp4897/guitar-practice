@@ -62,6 +62,7 @@ export function SongEditor({ song }: SongEditorProps) {
   const tapTimesRef = useRef<number[]>([]);
   const savedRef = useRef(false);
   const quickSavedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => () => {
     if (quickSavedTimeoutRef.current) clearTimeout(quickSavedTimeoutRef.current);
@@ -127,13 +128,28 @@ export function SongEditor({ song }: SongEditorProps) {
 
   const handleProgressionInsert = useCallback((text: string, section: ChordSection) => {
     setContent(prev => {
-      const trimmed = prev.trimEnd();
-      const next = trimmed ? trimmed + '\n' + text : text;
+      const el = contentRef.current;
+      const pos = el ? el.selectionStart : prev.length;
+      const before = prev.slice(0, pos);
+      const after = prev.slice(pos);
+
+      const leadingNewline = before.length > 0 && !before.endsWith('\n') ? '\n' : '';
+      const trailingNewline = after.length > 0 && !after.startsWith('\n') ? '\n' : '';
+      const insertion = leadingNewline + text + trailingNewline;
+      const next = before + insertion + after;
+
       setChordGrid(g => {
         const newGrid = [...g, section];
         setChordGridHash(hashStr(next));
         return newGrid;
       });
+
+      const caret = before.length + insertion.length;
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(caret, caret);
+      });
+
       return next;
     });
   }, []);
@@ -602,6 +618,7 @@ export function SongEditor({ song }: SongEditorProps) {
               </div>
             </div>
             <textarea
+              ref={contentRef}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               spellCheck={false}
