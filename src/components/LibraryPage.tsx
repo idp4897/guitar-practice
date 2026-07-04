@@ -10,7 +10,8 @@ import {
 } from '@/application/collections/collection.actions';
 import { TUNINGS, getTuning } from '@/domain/music/tuning';
 import { filterSongs } from '@/domain/songs/filter';
-import { parseChordPro, extractChords } from '@/domain/music/chordpro';
+import { getSongSyncInfo, getUnsyncedSongs } from '@/domain/songs/sync';
+import { SyncTag } from '@/components/SyncTag';
 import type { StoredSong } from '@/lib/song-store';
 import type { StoredCollection } from '@/domain/collections/types';
 
@@ -82,6 +83,7 @@ export function LibraryPage({ songs, collections: initialCollections }: LibraryP
   const hasFilters  = query.trim() !== '' || tuningId !== null;
   const usedTuningIds = new Set(songs.map((s) => s.tuning ?? 'standard'));
   const filterableTunings = TUNINGS.filter((t) => usedTuningIds.has(t.id));
+  const unsyncedSongs = getUnsyncedSongs(songs);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -227,6 +229,30 @@ export function LibraryPage({ songs, collections: initialCollections }: LibraryP
             </div>
           )}
         </section>
+
+        {/* Unsynced section */}
+        {unsyncedSongs.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Unsynced</h2>
+              <span className="text-sm text-zinc-500">
+                {unsyncedSongs.length} {unsyncedSongs.length === 1 ? 'song' : 'songs'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {unsyncedSongs.map((song) => (
+                <SongCard
+                  key={song.id}
+                  song={song}
+                  collections={collections}
+                  onCollectionToggle={handleToggleCollection}
+                  onCollectionOpen={() => setCollModalSongId(song.id)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
       </main>
 
       {/* Add to collection modal */}
@@ -425,13 +451,7 @@ function SongCard({
   const key    = song.preferredKey || song.originalKey;
   const tuning  = song.tuning && song.tuning !== 'standard' ? getTuning(song.tuning) : null;
 
-  const totalChords  = extractChords(parseChordPro(song.content)).length;
-  const syncedCount  = song.chordMap?.length ?? 0;
-  const syncStatus   = syncedCount === 0
-    ? 'unsync'
-    : syncedCount >= totalChords
-    ? 'full'
-    : 'partial';
+  const { status: syncStatus, synced: syncedCount, total: totalChords } = getSongSyncInfo(song);
   const collCount = collections.filter((c) => c.songIds.includes(song.id)).length;
 
   const handleDelete = () => {
@@ -530,50 +550,6 @@ function EmptyState() {
         Add first song
       </Link>
     </div>
-  );
-}
-
-// ─── Sync Tag ────────────────────────────────────────────────────────────────
-
-function SyncTag({
-  status,
-  synced,
-  total,
-}: {
-  status: 'unsync' | 'partial' | 'full';
-  synced: number;
-  total:  number;
-}) {
-  if (status === 'full') {
-    return (
-      <span
-        className="px-2 py-0.5 rounded-full text-xs font-medium
-          bg-green-500/10 text-green-400 border border-green-500/20"
-        title={`Fully synced (${synced}/${total} chords)`}
-      >
-        synced
-      </span>
-    );
-  }
-  if (status === 'partial') {
-    return (
-      <span
-        className="px-2 py-0.5 rounded-full text-xs font-medium
-          bg-amber-500/10 text-amber-400 border border-amber-500/20"
-        title={`Partially synced (${synced}/${total} chords)`}
-      >
-        partial
-      </span>
-    );
-  }
-  return (
-    <span
-      className="px-2 py-0.5 rounded-full text-xs font-medium
-        bg-zinc-800 text-zinc-600 border border-zinc-700"
-      title="No sync data"
-    >
-      no sync
-    </span>
   );
 }
 

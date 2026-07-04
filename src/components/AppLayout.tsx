@@ -4,11 +4,16 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ThemeToggle } from './ThemeToggle';
+import { SyncTag } from './SyncTag';
+import type { SongSyncStatus } from '@/domain/songs/sync';
 
 export interface Song {
-  id:      string;
-  title:   string;
-  artist?: string;
+  id:         string;
+  title:      string;
+  artist?:    string;
+  syncStatus: SongSyncStatus;
+  synced:     number;
+  total:      number;
 }
 
 interface SidebarCollection {
@@ -205,7 +210,10 @@ export function AppLayout({ songs, collections, children }: AppLayoutProps) {
                   : 'text-zinc-300 border-l-2 border-transparent',
               ].join(' ')}
             >
-              <div className="text-sm font-medium leading-snug truncate">{song.title}</div>
+              <div className="flex items-center gap-1.5">
+                <div className="text-sm font-medium leading-snug truncate flex-1 min-w-0">{song.title}</div>
+                <SyncTag status={song.syncStatus} synced={song.synced} total={song.total} />
+              </div>
               {song.artist && (
                 <div className="text-xs text-zinc-500 mt-0.5 truncate">{song.artist}</div>
               )}
