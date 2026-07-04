@@ -25,6 +25,13 @@ export async function updateSongAction(id: string, input: UpdateSongInput): Prom
   redirect(`/songs/${id}`);
 }
 
+export async function quickSaveSongAction(id: string, input: UpdateSongInput): Promise<void> {
+  await songStore.update(id, input);
+  revalidatePath('/');
+  revalidatePath(`/songs/${id}`);
+  refresh();
+}
+
 export async function savePlaybackAction(id: string, data: UpdateSongInput): Promise<void> {
   await songStore.update(id, data);
   revalidatePath(`/songs/${id}`);

@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { extractChords, parseChordPro } from '@/domain/music/chordpro';
 import { detectKeyBySection, detectPossibleKeys, formatSongKey, parseSongKey } from '@/domain/music/theory';
 import type { ChordSection, SectionAnalysisResult, SongKey } from '@/domain/music/types';
 import { getTuning, TUNINGS } from '@/domain/music/tuning';
 import { validateBpm } from '@/domain/music/bpm';
-import { createSongAction, updateSongAction } from '@/application/songs/song.actions';
+import { createSongAction, quickSaveSongAction, updateSongAction } from '@/application/songs/song.actions';
 import { deriveChordGrid } from '@/domain/music/chordgrid';
 import { ChordSheetViewer } from './ChordSheetViewer';
 import { ChordGridEditor } from './ChordGridEditor';
@@ -55,8 +55,43 @@ export function SongEditor({ song }: SongEditorProps) {
   const [rightPanel,   setRightPanel]   = useState<'preview' | 'visual' | 'grid'>('preview');
   const [showBuilder,  setShowBuilder]  = useState(false);
   const [pending,      startTransition] = useTransition();
+  const [quickPending, startQuickTransition] = useTransition();
+  const [quickSaved,   setQuickSaved]   = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
   const tapTimesRef = useRef<number[]>([]);
+  const savedRef = useRef(false);
+  const quickSavedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (quickSavedTimeoutRef.current) clearTimeout(quickSavedTimeoutRef.current);
+  }, []);
+
+  const buildSnapshot = useCallback(() => JSON.stringify({
+    title, artist, userKey, tuningId, capo, bpmInput, keys, youtubeUrl, content, chordGrid, chordGridHash,
+  }), [title, artist, userKey, tuningId, capo, bpmInput, keys, youtubeUrl, content, chordGrid, chordGridHash]);
+
+  const initialSnapshotRef = useRef<string | null>(null);
+  if (initialSnapshotRef.current === null) {
+    initialSnapshotRef.current = buildSnapshot();
+  }
+
+  const isDirty = !savedRef.current && buildSnapshot() !== initialSnapshotRef.current;
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  const handleBack = useCallback(() => {
+    if (isDirty) { setShowLeaveConfirm(true); return; }
+    router.back();
+  }, [isDirty, router]);
 
   const preview       = parseChordPro(content);
   const candidates    = detectPossibleKeys(extractChords(preview));
@@ -103,28 +138,31 @@ export function SongEditor({ song }: SongEditorProps) {
     });
   }, []);
 
+  const buildInput = useCallback(() => ({
+    title:                title.trim(),
+    artist:               artist.trim()     || undefined,
+    originalKey:          candidates[0]?.key || undefined,
+    preferredKey:         userKey           || undefined,
+    capo,
+    tuning:               tuningId !== 'standard' ? tuningId : undefined,
+    bpm:                  validateBpm(bpmInput) ?? undefined,
+    keys:                 keys.length > 0 ? keys : undefined,
+    content,
+    youtubeUrl:           youtubeUrl.trim() || undefined,
+    chordMap:             song?.chordMap,
+    chordGrid:            chordGrid.length > 0 ? chordGrid : undefined,
+    chordGridContentHash: chordGrid.length > 0 ? chordGridHash : undefined,
+  }), [title, artist, userKey, tuningId, candidates, capo, bpmInput, keys, content, youtubeUrl, chordGrid, chordGridHash, song]);
+
   const handleSave = useCallback(() => {
     if (!title.trim()) { setError('Title is required.'); return; }
     setError(null);
 
-    const input = {
-      title:                title.trim(),
-      artist:               artist.trim()     || undefined,
-      originalKey:          candidates[0]?.key || undefined,
-      preferredKey:         userKey           || undefined,
-      capo,
-      tuning:               tuningId !== 'standard' ? tuningId : undefined,
-      bpm:                  validateBpm(bpmInput) ?? undefined,
-      keys:                 keys.length > 0 ? keys : undefined,
-      content,
-      youtubeUrl:           youtubeUrl.trim() || undefined,
-      chordMap:             song?.chordMap,
-      chordGrid:            chordGrid.length > 0 ? chordGrid : undefined,
-      chordGridContentHash: chordGrid.length > 0 ? chordGridHash : undefined,
-    };
+    const input = buildInput();
 
     startTransition(async () => {
       try {
+        savedRef.current = true;
         if (isEdit) {
           await updateSongAction(song.id, input);
         } else {
@@ -141,10 +179,31 @@ export function SongEditor({ song }: SongEditorProps) {
         ) {
           return;
         }
+        savedRef.current = false;
         setError(e instanceof Error ? e.message : 'Failed to save');
       }
     });
-  }, [title, artist, userKey, tuningId, candidates, capo, bpmInput, keys, content, youtubeUrl, chordGrid, chordGridHash, isEdit, song]);
+  }, [title, buildInput, isEdit, song]);
+
+  const handleQuickSave = useCallback(() => {
+    if (!isEdit || !song) return;
+    if (!title.trim()) { setError('Title is required.'); return; }
+    setError(null);
+
+    const input = buildInput();
+
+    startQuickTransition(async () => {
+      try {
+        await quickSaveSongAction(song.id, input);
+        initialSnapshotRef.current = buildSnapshot();
+        setQuickSaved(true);
+        if (quickSavedTimeoutRef.current) clearTimeout(quickSavedTimeoutRef.current);
+        quickSavedTimeoutRef.current = setTimeout(() => setQuickSaved(false), 2000);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to save');
+      }
+    });
+  }, [title, buildInput, isEdit, song, buildSnapshot]);
 
   return (
     <div className="flex flex-col h-screen bg-zinc-950 text-zinc-100">
@@ -153,7 +212,7 @@ export function SongEditor({ song }: SongEditorProps) {
       <header className="shrink-0 flex items-center gap-3 px-4 py-3
         border-b border-zinc-800 bg-zinc-900">
         <button
-          onClick={() => router.back()}
+          onClick={handleBack}
           className="flex items-center justify-center w-9 h-9 rounded-lg
             text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-colors"
           aria-label="Go back"
@@ -188,9 +247,23 @@ export function SongEditor({ song }: SongEditorProps) {
           ))}
         </div>
 
+        {isEdit && (
+          <button
+            onClick={handleQuickSave}
+            disabled={pending || quickPending}
+            className="px-4 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-200
+              text-sm font-bold hover:bg-zinc-700
+              disabled:opacity-50 disabled:cursor-not-allowed
+              transition-colors touch-manipulation"
+            title="Save without leaving the editor"
+          >
+            {quickPending ? 'Saving…' : quickSaved ? 'Saved ✓' : 'Quick Save'}
+          </button>
+        )}
+
         <button
           onClick={handleSave}
-          disabled={pending}
+          disabled={pending || quickPending}
           className="px-4 py-2 rounded-xl bg-amber-500 text-zinc-950
             text-sm font-bold hover:bg-amber-400
             disabled:opacity-50 disabled:cursor-not-allowed
@@ -626,6 +699,36 @@ export function SongEditor({ song }: SongEditorProps) {
           onClose={() => setShowBuilder(false)}
           keyContext={effectiveKey || undefined}
         />
+      )}
+
+      {/* Unsaved changes confirmation */}
+      {showLeaveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-800 p-5 shadow-xl">
+            <h2 className="text-sm font-semibold text-zinc-100">Discard unsaved changes?</h2>
+            <p className="mt-1.5 text-xs text-zinc-500 leading-relaxed">
+              You have unsaved changes to this song. Leaving now will discard them.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowLeaveConfirm(false)}
+                className="px-3.5 py-2 rounded-xl text-xs font-medium
+                  bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowLeaveConfirm(false); savedRef.current = true; router.back(); }}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold
+                  bg-red-500/90 text-zinc-950 hover:bg-red-500 transition-colors"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
