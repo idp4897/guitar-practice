@@ -114,10 +114,12 @@ export function ChordProgressionBuilder({
           ? { type: 'chord', value: chord, id, beats: (item as Extract<ProgressionItem, { type: 'chord' }>).beats ?? 4 }
           : item,
       ));
+      setPicker(null);
     } else {
       setItems(prev => [...prev, { type: 'chord', value: chord, id: nextId(), beats: 4 }]);
+      setSearch('');
+      pickerInput.current?.focus();
     }
-    setPicker(null);
   }, [picker]);
 
   const submitSearch = () => selectChord(search.trim());

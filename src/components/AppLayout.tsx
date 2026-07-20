@@ -35,8 +35,10 @@ export function AppLayout({ songs, collections, children }: AppLayoutProps) {
   const collectionId = searchParams.get('collectionId');
   const autoNext     = searchParams.get('autoNext') as 'skip' | 'play' | null;
 
-  const songSegment  = pathname.split('/')[2];
+  const pathSegments = pathname.split('/');
+  const songSegment  = pathSegments[2];
   const activeSongId = songSegment && songSegment !== 'new' ? songSegment : undefined;
+  const isEditorRoute = songSegment === 'new' || pathSegments[3] === 'edit';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -74,7 +76,7 @@ export function AppLayout({ songs, collections, children }: AppLayoutProps) {
     <div className="flex h-screen overflow-hidden bg-zinc-950 dark:bg-zinc-950 text-zinc-100">
 
       {/* Mobile overlay */}
-      {sidebarOpen && (
+      {!isEditorRoute && sidebarOpen && (
         <div
           className="fixed inset-0 z-20 bg-black/60 md:hidden"
           onClick={() => setSidebarOpen(false)}
@@ -82,7 +84,7 @@ export function AppLayout({ songs, collections, children }: AppLayoutProps) {
       )}
 
       {/* Sidebar */}
-      <aside className={[
+      {!isEditorRoute && <aside className={[
         'fixed inset-y-0 left-0 z-30 w-72 flex flex-col',
         'bg-zinc-900 border-r border-zinc-800',
         'transform transition-transform duration-200 ease-in-out',
@@ -220,30 +222,32 @@ export function AppLayout({ songs, collections, children }: AppLayoutProps) {
             </Link>
           ))}
         </nav>
-      </aside>
+      </aside>}
 
       {/* Main area */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <header className="flex items-center gap-3 px-4 py-3
-          border-b border-zinc-800 bg-zinc-900 shrink-0">
-          <button
-            className="md:hidden flex items-center justify-center w-9 h-9 rounded-lg
-              text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-colors"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open sidebar"
-          >
-            <HamburgerIcon />
-          </button>
+        {!isEditorRoute && (
+          <header className="flex items-center gap-3 px-4 py-3
+            border-b border-zinc-800 bg-zinc-900 shrink-0">
+            <button
+              className="md:hidden flex items-center justify-center w-9 h-9 rounded-lg
+                text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-colors"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+            >
+              <HamburgerIcon />
+            </button>
 
-          <Link href="/" className="flex-1 min-w-0">
-            <h1 className="text-sm font-semibold text-zinc-100 truncate hover:text-amber-400
-              transition-colors">
-              Guitar Practice
-            </h1>
-          </Link>
+            <Link href="/" className="flex-1 min-w-0">
+              <h1 className="text-sm font-semibold text-zinc-100 truncate hover:text-amber-400
+                transition-colors">
+                Guitar Practice
+              </h1>
+            </Link>
 
-          <ThemeToggle />
-        </header>
+            <ThemeToggle />
+          </header>
+        )}
 
         <main className="flex-1 overflow-hidden">{children}</main>
       </div>

@@ -50,6 +50,7 @@ export function SongEditor({ song }: SongEditorProps) {
   const [content,      setContent]      = useState(song?.content      ?? '');
   const [chordGrid,    setChordGrid]    = useState<ChordSection[]>(song?.chordGrid ?? []);
   const [chordGridHash, setChordGridHash] = useState(song?.chordGridContentHash);
+  const [gridWarningDismissed, setGridWarningDismissed] = useState(false);
   const [error,        setError]        = useState<string | null>(null);
   const [activeTab,    setActiveTab]    = useState<'form' | 'preview' | 'visual' | 'grid'>('form');
   const [rightPanel,   setRightPanel]   = useState<'preview' | 'visual' | 'grid'>('preview');
@@ -124,6 +125,7 @@ export function SongEditor({ song }: SongEditorProps) {
     if (derived.length === 0) return;
     setChordGrid(derived);
     setChordGridHash(hashStr(content));
+    setGridWarningDismissed(false);
   }, [preview, content]);
 
   const handleProgressionInsert = useCallback((text: string, section: ChordSection) => {
@@ -141,6 +143,7 @@ export function SongEditor({ song }: SongEditorProps) {
       setChordGrid(g => {
         const newGrid = [...g, section];
         setChordGridHash(hashStr(next));
+        setGridWarningDismissed(false);
         return newGrid;
       });
 
@@ -296,7 +299,7 @@ export function SongEditor({ song }: SongEditorProps) {
       )}
 
       {/* Stale chord grid warning */}
-      {chordGrid.length > 0 && chordGridHash && hashStr(content) !== chordGridHash && (
+      {chordGrid.length > 0 && chordGridHash && hashStr(content) !== chordGridHash && !gridWarningDismissed && (
         <div className="shrink-0 flex items-center gap-2 px-4 py-2
           bg-amber-950/40 border-b border-amber-800/40">
           <span className="text-xs text-amber-400 flex-1">
@@ -309,6 +312,17 @@ export function SongEditor({ song }: SongEditorProps) {
               hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
           >
             Clear grid
+          </button>
+          <button
+            type="button"
+            onClick={() => setGridWarningDismissed(true)}
+            aria-label="Dismiss warning"
+            className="shrink-0 p-1 rounded-md text-amber-600
+              hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+            </svg>
           </button>
         </div>
       )}
