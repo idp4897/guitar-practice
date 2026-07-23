@@ -868,6 +868,9 @@ export function PlayerPage({
         <TapSyncMode
           sheet={displaySheet}
           player={playerRef.current}
+          grid={chordGrid ?? []}
+          bpm={initialBpm}
+          gridStale={chordGridStale}
           onSave={(map) => { onChordMapChange(map); setTapOpen(false); }}
           onClose={() => setTapOpen(false)}
         />

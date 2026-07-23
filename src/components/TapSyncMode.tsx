@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
-import type { ChordCue, ChordProSheet } from '@/domain/music/types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ChordCue, ChordProSheet, ChordSection } from '@/domain/music/types';
 import type { YTPlayer } from '@/lib/youtube';
 import { ChordSheetViewer } from './ChordSheetViewer';
+import { GridSyncMode } from './GridSyncMode';
 import { useTapSync } from '@/hooks/useTapSync';
 import { extractChords } from '@/domain/music/chordpro';
 
@@ -17,15 +18,21 @@ import { extractChords } from '@/domain/music/chordpro';
 //   pending (index > tapIdx)  — amber-400, not yet reached
 
 export interface TapSyncModeProps {
-  sheet:   ChordProSheet;
-  player:  YTPlayer | null;
-  onSave:  (map: ChordCue[]) => void;
-  onClose: () => void;
+  sheet:      ChordProSheet;
+  player:     YTPlayer | null;
+  grid:       ChordSection[];
+  bpm?:       number;
+  gridStale?: boolean;
+  onSave:     (map: ChordCue[]) => void;
+  onClose:    () => void;
 }
 
-export function TapSyncMode({ sheet, player, onSave, onClose }: TapSyncModeProps) {
-  const chords = extractChords(sheet);
-  const total  = chords.length;
+export function TapSyncMode({ sheet, player, grid, bpm, gridStale, onSave, onClose }: TapSyncModeProps) {
+  const chords  = extractChords(sheet);
+  const total   = chords.length;
+  const hasGrid = grid.length > 0;
+
+  const [syncMode, setSyncMode] = useState<'tap' | 'grid'>('tap');
 
   const { tapIdx, taps, done, tap, undo, reset, chordStatus } = useTapSync(chords, player);
 
@@ -42,17 +49,20 @@ export function TapSyncMode({ sheet, player, onSave, onClose }: TapSyncModeProps
 
   // ── Keyboard: Space/Enter = tap · Z/Backspace = undo · Escape = exit ───────
 
-  const tapRef   = useRef(tap);
-  const undoRef  = useRef(undo);
-  tapRef.current  = tap;
-  undoRef.current = undo;
+  const tapRef      = useRef(tap);
+  const undoRef     = useRef(undo);
+  const syncModeRef = useRef(syncMode);
+  tapRef.current      = tap;
+  undoRef.current     = undo;
+  syncModeRef.current = syncMode;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
+      if (e.key === 'Escape') { onClose(); return; }
+      if (syncModeRef.current !== 'tap') return;  // grid mode owns its own keys
       if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); tapRef.current(); }
       if (e.key === 'z' || e.key === 'Z' || e.key === 'Backspace') { e.preventDefault(); undoRef.current(); }
-      if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -69,6 +79,11 @@ export function TapSyncMode({ sheet, player, onSave, onClose }: TapSyncModeProps
     reset();
     player?.seekTo(0, true);
   }, [reset, player]);
+
+  const handleGridSave = useCallback((map: ChordCue[]) => {
+    onSave(map);
+    onClose();
+  }, [onSave, onClose]);
 
   // ── No player ────────────────────────────────────────────────────────────
 
@@ -109,6 +124,38 @@ export function TapSyncMode({ sheet, player, onSave, onClose }: TapSyncModeProps
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-zinc-950 select-none">
 
+      {/* Sync-mode tabs — only when a chord grid exists */}
+      {hasGrid && (
+        <div className="shrink-0 flex border-b border-zinc-800 bg-zinc-900">
+          {(['tap', 'grid'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setSyncMode(m)}
+              className={[
+                'flex-1 py-2.5 text-xs font-medium uppercase tracking-wide transition-colors',
+                syncMode === m
+                  ? 'text-amber-400 border-b-2 border-amber-400 -mb-px'
+                  : 'text-zinc-500 hover:text-zinc-300',
+              ].join(' ')}
+            >
+              {m === 'tap' ? 'Tap each' : 'From grid'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {hasGrid && syncMode === 'grid' ? (
+        <GridSyncMode
+          grid={grid}
+          chords={chords}
+          player={player}
+          initialBpm={bpm}
+          stale={gridStale}
+          onSave={handleGridSave}
+          onExit={onClose}
+        />
+      ) : (
+      <>
       {/* Header bar: progress + action buttons */}
       <div className="flex-none flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800 bg-zinc-900">
         <div className="flex-1 min-w-0">
@@ -231,6 +278,8 @@ export function TapSyncMode({ sheet, player, onSave, onClose }: TapSyncModeProps
             )}
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   );
