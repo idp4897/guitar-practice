@@ -9,8 +9,10 @@ import { getTuning, TUNINGS } from '@/domain/music/tuning';
 import { validateBpm } from '@/domain/music/bpm';
 import { createSongAction, quickSaveSongAction, updateSongAction } from '@/application/songs/song.actions';
 import { deriveChordGrid } from '@/domain/music/chordgrid';
+import { looksLikeChordOverLyrics } from '@/domain/music/chord-import';
 import { ChordSheetViewer } from './ChordSheetViewer';
 import { ChordGridEditor } from './ChordGridEditor';
+import { ChordImportDialog } from './ChordImportDialog';
 import { ChordPlacer } from './ChordPlacer';
 import { ChordProgressionBuilder } from './ChordProgressionBuilder';
 import type { KeyCandidate } from '@/domain/music/types';
@@ -52,9 +54,12 @@ export function SongEditor({ song }: SongEditorProps) {
   const [chordGridHash, setChordGridHash] = useState(song?.chordGridContentHash);
   const [gridWarningDismissed, setGridWarningDismissed] = useState(false);
   const [error,        setError]        = useState<string | null>(null);
-  const [activeTab,    setActiveTab]    = useState<'form' | 'preview' | 'visual' | 'grid'>('form');
-  const [rightPanel,   setRightPanel]   = useState<'preview' | 'visual' | 'grid'>('preview');
+  const [activeTab,    setActiveTab]    = useState<'form' | 'preview' | 'visual'>('form');
+  const [rightPanel,   setRightPanel]   = useState<'preview' | 'visual'>('preview');
+  const [showGrid,     setShowGrid]     = useState((song?.chordGrid?.length ?? 0) > 0);
   const [showBuilder,  setShowBuilder]  = useState(false);
+  const [showImport,   setShowImport]   = useState(false);
+  const [convertHint,  setConvertHint]  = useState(false);
   const [pending,      startTransition] = useTransition();
   const [quickPending, startQuickTransition] = useTransition();
   const [quickSaved,   setQuickSaved]   = useState(false);
@@ -127,6 +132,47 @@ export function SongEditor({ song }: SongEditorProps) {
     setChordGridHash(hashStr(content));
     setGridWarningDismissed(false);
   }, [preview, content]);
+
+  const insertAtCursor = useCallback((text: string) => {
+    setContent(prev => {
+      const el  = contentRef.current;
+      const pos = el ? el.selectionStart : prev.length;
+      const before = prev.slice(0, pos);
+      const after  = prev.slice(pos);
+
+      const insertion =
+        (before.length > 0 && !before.endsWith('\n') ? '\n' : '') +
+        text +
+        (after.length > 0 && !after.startsWith('\n') ? '\n' : '');
+
+      const caret = before.length + insertion.length;
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(caret, caret);
+      });
+
+      return before + insertion + after;
+    });
+  }, []);
+
+  const handleImportApply = useCallback((text: string, importedCapo?: number) => {
+    setContent(text);
+    if (importedCapo !== undefined) setCapo(importedCapo);
+    setShowImport(false);
+    setConvertHint(false);
+  }, []);
+
+  const handleImportInsert = useCallback((text: string, importedCapo?: number) => {
+    insertAtCursor(text);
+    if (importedCapo !== undefined) setCapo(importedCapo);
+    setShowImport(false);
+    setConvertHint(false);
+  }, [insertAtCursor]);
+
+  const handleContentPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = e.clipboardData.getData('text');
+    if (pasted.includes('\n') && looksLikeChordOverLyrics(pasted)) setConvertHint(true);
+  }, []);
 
   const handleProgressionInsert = useCallback((text: string, section: ChordSection) => {
     setContent(prev => {
@@ -249,7 +295,6 @@ export function SongEditor({ song }: SongEditorProps) {
             { id: 'form',    label: 'Form'    },
             { id: 'preview', label: 'Preview' },
             { id: 'visual',  label: 'Visual'  },
-            { id: 'grid',    label: 'Grid'    },
           ] as const).map(({ id, label }) => (
             <button
               key={id}
@@ -604,6 +649,16 @@ export function SongEditor({ song }: SongEditorProps) {
                 ChordPro
               </label>
               <div className="flex gap-1.5 items-center">
+                <button
+                  type="button"
+                  onClick={() => setShowImport(true)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium
+                    bg-zinc-800 border border-zinc-700 text-zinc-400
+                    hover:bg-zinc-700 hover:text-zinc-200 transition-colors"
+                  title="Convert chords-above-lyrics text into ChordPro"
+                >
+                  📋 Paste &amp; Convert
+                </button>
                 {extractChords(preview).length > 0 && (
                   <button
                     type="button"
@@ -631,10 +686,37 @@ export function SongEditor({ song }: SongEditorProps) {
                 </button>
               </div>
             </div>
+            {convertHint && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl
+                bg-sky-950/40 border border-sky-800/40">
+                <span className="flex-1 text-xs text-sky-400">
+                  Looks like chords above lyrics — convert to ChordPro?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowImport(true)}
+                  className="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold
+                    bg-sky-500/20 border border-sky-500/40 text-sky-300
+                    hover:bg-sky-500/30 transition-colors"
+                >
+                  Convert
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConvertHint(false)}
+                  aria-label="Dismiss"
+                  className="shrink-0 p-1 rounded-md text-sky-600
+                    hover:text-sky-400 hover:bg-sky-500/10 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <textarea
               ref={contentRef}
               value={content}
               onChange={(e) => setContent(e.target.value)}
+              onPaste={handleContentPaste}
               spellCheck={false}
               rows={20}
               placeholder={`[Am]Well you only need the [G]light when it's burn[F]ing low\n[Am]Only miss the [G]sun when it starts to [C]snow`}
@@ -647,81 +729,115 @@ export function SongEditor({ song }: SongEditorProps) {
           </div>
         </div>
 
-        {/* ── Right panel (Preview / Visual / Grid) ───────────────────────── */}
+        {/* ── Right panel (Preview / Visual on top, Chord Grid split below) ── */}
         <div className={[
           'flex-1 flex flex-col min-h-0',
           activeTab === 'form' ? 'hidden md:flex' : 'flex',
         ].join(' ')}>
 
-          {/* Desktop panel toggle — hidden on mobile */}
-          <div className="hidden md:flex shrink-0 items-center gap-0.5
+          {/* Panel toolbar */}
+          <div className="shrink-0 flex items-center gap-0.5
             px-3 py-2 border-b border-zinc-800 bg-zinc-900">
-            {([
-              { id: 'preview', label: 'Preview'       },
-              { id: 'visual',  label: 'Visual Editor' },
-              { id: 'grid',    label: 'Chord Grid'    },
-            ] as const).map(({ id, label }) => (
-              <button
-                key={id}
-                onClick={() => setRightPanel(id)}
-                className={[
-                  'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                  rightPanel === id
-                    ? 'bg-zinc-700 text-zinc-100'
-                    : 'text-zinc-400 hover:text-zinc-200',
-                ].join(' ')}
-              >
-                {label}
-              </button>
-            ))}
+            {/* Top-pane tabs — desktop only (mobile uses the header tabs) */}
+            <div className="hidden md:flex items-center gap-0.5">
+              {([
+                { id: 'preview', label: 'Preview'       },
+                { id: 'visual',  label: 'Visual Editor' },
+              ] as const).map(({ id, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setRightPanel(id)}
+                  className={[
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                    rightPanel === id
+                      ? 'bg-zinc-700 text-zinc-100'
+                      : 'text-zinc-400 hover:text-zinc-200',
+                  ].join(' ')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1" />
+
+            {/* Chord Grid toggle — reveals the grid editor below the preview */}
+            <button
+              type="button"
+              onClick={() => setShowGrid(v => !v)}
+              aria-pressed={showGrid}
+              title="Show the chord grid editor below, with the lyrics for reference"
+              className={[
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                showGrid
+                  ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200',
+              ].join(' ')}
+            >
+              <span className={['w-1.5 h-1.5 rounded-full', showGrid ? 'bg-amber-400' : 'bg-zinc-600'].join(' ')} />
+              Chord Grid
+            </button>
           </div>
 
-          {/* Preview pane */}
-          <div className={[
-            'flex-1 overflow-y-auto bg-zinc-950/40 flex-col',
-            activeTab === 'preview' ? 'flex'    : 'hidden',
-            rightPanel === 'preview' ? 'md:flex' : 'md:hidden',
-          ].join(' ')}>
-            {content.trim() ? (
-              <ChordSheetViewer sheet={preview} tuning={getTuning(tuningId)} />
-            ) : (
-              <div className="flex items-center justify-center h-full text-center p-8">
-                <p className="text-sm text-zinc-600 leading-relaxed">
-                  Start typing ChordPro in the form<br />
-                  to see a live preview here.
-                </p>
-              </div>
-            )}
+          {/* Top region: Preview / Visual (stays visible as a lyric reference) */}
+          <div className="flex-1 min-h-0 flex flex-col">
+            {/* Preview pane */}
+            <div className={[
+              'flex-1 overflow-y-auto bg-zinc-950/40 flex-col',
+              activeTab === 'preview' ? 'flex'    : 'hidden',
+              rightPanel === 'preview' ? 'md:flex' : 'md:hidden',
+            ].join(' ')}>
+              {content.trim() ? (
+                <ChordSheetViewer sheet={preview} tuning={getTuning(tuningId)} />
+              ) : (
+                <div className="flex items-center justify-center h-full text-center p-8">
+                  <p className="text-sm text-zinc-600 leading-relaxed">
+                    Start typing ChordPro in the form<br />
+                    to see a live preview here.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Visual editor pane */}
+            <div className={[
+              'flex-1 min-h-0 flex-col',
+              activeTab === 'visual' ? 'flex'    : 'hidden',
+              rightPanel === 'visual' ? 'md:flex' : 'md:hidden',
+            ].join(' ')}>
+              <ChordPlacer
+                content={content}
+                onChange={setContent}
+                keyContext={effectiveKey || undefined}
+              />
+            </div>
           </div>
 
-          {/* Visual editor pane */}
-          <div className={[
-            'flex-1 min-h-0 flex-col',
-            activeTab === 'visual' ? 'flex'    : 'hidden',
-            rightPanel === 'visual' ? 'md:flex' : 'md:hidden',
-          ].join(' ')}>
-            <ChordPlacer
-              content={content}
-              onChange={setContent}
-              keyContext={effectiveKey || undefined}
-            />
-          </div>
-
-          {/* Chord Grid editor pane */}
-          <div className={[
-            'flex-1 min-h-0 flex-col bg-zinc-950',
-            activeTab === 'grid' ? 'flex'    : 'hidden',
-            rightPanel === 'grid' ? 'md:flex' : 'md:hidden',
-          ].join(' ')}>
-            <ChordGridEditor
-              grid={chordGrid}
-              onChange={setChordGrid}
-              onAutoBuild={handleAutoBuild}
-              hasContent={extractChords(preview).length > 0}
-            />
-          </div>
+          {/* Bottom region: Chord Grid editor — toggled on/off */}
+          {showGrid && (
+            <div className="flex-1 min-h-0 flex flex-col bg-zinc-950 border-t border-zinc-800">
+              <ChordGridEditor
+                grid={chordGrid}
+                onChange={setChordGrid}
+                onAutoBuild={handleAutoBuild}
+                hasContent={extractChords(preview).length > 0}
+                youtubeUrl={song?.youtubeUrl}
+              />
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Paste & Convert — chords above lyrics → ChordPro */}
+      {showImport && (
+        <ChordImportDialog
+          onApply={handleImportApply}
+          onInsert={handleImportInsert}
+          onClose={() => setShowImport(false)}
+          hasContent={content.trim().length > 0}
+          initialText={convertHint ? content : ''}
+        />
+      )}
 
       {/* Chord Progression Builder — floating panel */}
       {showBuilder && (

@@ -1,16 +1,36 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { ChordSection } from '@/domain/music/types';
+import { copyBeatsToSections, matchingSectionIndices } from '@/domain/music/gridCopy';
+import { GridYouTubePlayer } from './GridYouTubePlayer';
+
+const MAX_BEATS = 8;
+
+// Beats after one badge click: add `step`, wrapping past MAX_BEATS back into 1..8.
+function nextBeats(current: number, step: number): number {
+  const next = current + step;
+  return next > MAX_BEATS ? ((next - 1) % MAX_BEATS) + 1 : next;
+}
 
 interface ChordGridEditorProps {
   grid:         ChordSection[];
   onChange:     (grid: ChordSection[]) => void;
   onAutoBuild?: () => void;
   hasContent?:  boolean;
+  youtubeUrl?:  string;   // saved song URL only — not the live form value
 }
 
-export function ChordGridEditor({ grid, onChange, onAutoBuild, hasContent }: ChordGridEditorProps) {
+export function ChordGridEditor({ grid, onChange, onAutoBuild, hasContent, youtubeUrl }: ChordGridEditorProps) {
+
+  // Index of the section whose "copy beats to" menu is open, or null.
+  const [copyMenu, setCopyMenu] = useState<number | null>(null);
+
+  // Beats added per badge click. Session-only — resets to 1 each mount, never persisted.
+  const [beatStep, setBeatStep] = useState(1);
+
+  // Reference player — shown only when the song has a saved YouTube link.
+  const player = youtubeUrl ? <GridYouTubePlayer youtubeUrl={youtubeUrl} /> : null;
 
   const updateSection = useCallback((si: number, patch: Partial<ChordSection>) => {
     onChange(grid.map((s, i) => i === si ? { ...s, ...patch } : s));
@@ -35,29 +55,39 @@ export function ChordGridEditor({ grid, onChange, onAutoBuild, hasContent }: Cho
     );
   }, [grid, onChange]);
 
+  const copyBeats = useCallback((si: number, targets: number[]) => {
+    onChange(copyBeatsToSections(grid, si, targets));
+    setCopyMenu(null);
+  }, [grid, onChange]);
+
   if (grid.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
-        <p className="text-sm text-zinc-500">No chord grid yet.</p>
-        {hasContent && onAutoBuild && (
-          <button
-            onClick={onAutoBuild}
-            className="px-4 py-2 rounded-xl text-sm font-medium
-              bg-zinc-800 border border-zinc-700 text-zinc-300
-              hover:bg-zinc-700 hover:text-zinc-100 transition-colors"
-          >
-            ⚡ Auto-build from ChordPro
-          </button>
-        )}
-        <p className="text-xs text-zinc-600">
-          Or use the ♩ Progression builder in the Form tab to add sections manually.
-        </p>
+      <div className="flex flex-col h-full min-h-0">
+        {player}
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center px-8">
+          <p className="text-sm text-zinc-500">No chord grid yet.</p>
+          {hasContent && onAutoBuild && (
+            <button
+              onClick={onAutoBuild}
+              className="px-4 py-2 rounded-xl text-sm font-medium
+                bg-zinc-800 border border-zinc-700 text-zinc-300
+                hover:bg-zinc-700 hover:text-zinc-100 transition-colors"
+            >
+              ⚡ Auto-build from ChordPro
+            </button>
+          )}
+          <p className="text-xs text-zinc-600">
+            Or use the ♩ Progression builder in the Form tab to add sections manually.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full min-h-0">
+
+      {player}
 
       {/* Toolbar */}
       <div className="shrink-0 flex items-center gap-2 px-4 py-2
@@ -67,6 +97,31 @@ export function ChordGridEditor({ grid, onChange, onAutoBuild, hasContent }: Cho
           {' · '}
           {grid.reduce((n, s) => n + s.chords.length, 0)} chords
         </span>
+
+        {/* Beats-per-click step — session-only, resets to 1 each time */}
+        <div className="flex items-center gap-0.5 ml-3" title="How many beats each badge click adds">
+          <span className="text-[10px] text-zinc-600 mr-1">step</span>
+          <button
+            onClick={() => setBeatStep(s => Math.max(1, s - 1))}
+            disabled={beatStep <= 1}
+            aria-label="Decrease beat step"
+            className="w-5 h-5 flex items-center justify-center rounded
+              text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700
+              disabled:opacity-30 transition-colors text-sm"
+          >−</button>
+          <span className="w-6 text-center text-xs font-mono text-zinc-300 tabular-nums">
+            +{beatStep}
+          </span>
+          <button
+            onClick={() => setBeatStep(s => Math.min(MAX_BEATS, s + 1))}
+            disabled={beatStep >= MAX_BEATS}
+            aria-label="Increase beat step"
+            className="w-5 h-5 flex items-center justify-center rounded
+              text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700
+              disabled:opacity-30 transition-colors text-sm"
+          >+</button>
+        </div>
+
         <div className="flex-1" />
         {hasContent && onAutoBuild && (
           <button
@@ -90,7 +145,10 @@ export function ChordGridEditor({ grid, onChange, onAutoBuild, hasContent }: Cho
 
       {/* Sections list */}
       <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/40">
-        {grid.map((section, si) => (
+        {grid.map((section, si) => {
+          const matches = matchingSectionIndices(grid, si);
+          const menuOpen = copyMenu === si;
+          return (
           <div key={si} className="px-4 py-3 space-y-2.5">
 
             {/* Section header row */}
@@ -105,6 +163,59 @@ export function ChordGridEditor({ grid, onChange, onAutoBuild, hasContent }: Cho
                   border-b border-transparent hover:border-zinc-700 focus:border-amber-500
                   focus:outline-none placeholder:text-zinc-600 transition-colors py-0.5"
               />
+
+              {/* Copy beats to sections with an identical chord progression */}
+              {matches.length > 0 && (
+                <div className="relative shrink-0">
+                  <button
+                    onClick={() => setCopyMenu(menuOpen ? null : si)}
+                    aria-expanded={menuOpen}
+                    title="Copy this section's beats to sections with the same chord progression"
+                    className={[
+                      'flex items-center gap-1 px-2 h-6 rounded-md text-[10px] font-medium transition-colors',
+                      menuOpen
+                        ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40'
+                        : 'text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10',
+                    ].join(' ')}
+                  >
+                    ⧉ Copy beats
+                  </button>
+
+                  {menuOpen && (
+                    <>
+                      {/* Click-away backdrop */}
+                      <div className="fixed inset-0 z-10" onClick={() => setCopyMenu(null)} />
+                      <div className="absolute right-0 top-7 z-20 w-52 rounded-xl
+                        bg-zinc-900 border border-zinc-700 shadow-xl shadow-black/40 p-1">
+                        <p className="px-2.5 py-1.5 text-[10px] text-zinc-500 leading-snug">
+                          Apply <span className="text-zinc-300 font-medium">{section.label || 'this section'}</span>&apos;s
+                          beats to:
+                        </p>
+                        {matches.map((ti) => (
+                          <button
+                            key={ti}
+                            onClick={() => copyBeats(si, [ti])}
+                            className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg
+                              text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                          >
+                            <span className="truncate">{grid[ti].label || `Section ${ti + 1}`}</span>
+                            <span className="text-[9px] text-zinc-600 shrink-0">→ apply</span>
+                          </button>
+                        ))}
+                        {matches.length > 1 && (
+                          <button
+                            onClick={() => copyBeats(si, matches)}
+                            className="w-full mt-0.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left
+                              text-amber-400 hover:bg-amber-500/10 transition-colors"
+                          >
+                            Apply to all {matches.length} matching
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Repeat stepper */}
               <div className="flex items-center gap-0.5 shrink-0">
@@ -158,8 +269,8 @@ export function ChordGridEditor({ grid, onChange, onAutoBuild, hasContent }: Cho
                   </div>
                   {/* Beats badge — click cycles 1→8→1 */}
                   <button
-                    onClick={() => setChordBeats(si, ci, cb.beats >= 8 ? 1 : cb.beats + 1)}
-                    title="Click to change beat count"
+                    onClick={() => setChordBeats(si, ci, nextBeats(cb.beats, beatStep))}
+                    title={`Click to add ${beatStep} beat${beatStep > 1 ? 's' : ''}`}
                     className="text-[9px] tabular-nums leading-none
                       text-zinc-600 hover:text-amber-400 transition-colors"
                   >
@@ -170,7 +281,8 @@ export function ChordGridEditor({ grid, onChange, onAutoBuild, hasContent }: Cho
             </div>
 
           </div>
-        ))}
+          );
+        })}
         <div className="h-8" />
       </div>
     </div>

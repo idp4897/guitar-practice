@@ -9,6 +9,11 @@ import {
   generateCuesFromGrid,
 } from '@/domain/music/gridSync';
 import { BPM_MIN, BPM_MAX } from '@/domain/music/bpm';
+import {
+  getTimeSignature,
+  TIME_SIGNATURES,
+  type TimeSignature,
+} from '@/domain/music/timeSignature';
 
 // ─── GridSyncMode ───────────────────────────────────────────────────────────
 // Places one ChordCue per sheet chord from a single anchor tap + BPM, using the
@@ -39,14 +44,19 @@ export function GridSyncMode({
   grid, chords, player, initialBpm, stale, onSave, onExit,
 }: GridSyncModeProps) {
   const [bpm,    setBpm]    = useState(() => clampBpm(initialBpm ?? 120));
+  const [ts,     setTs]     = useState<TimeSignature>(() => getTimeSignature('4_4'));
   const [anchor, setAnchor] = useState<number | null>(null);
 
   const beatsPerChord = useMemo(() => flattenGridBeats(grid).map((b) => b.beats), [grid]);
   const aligned       = useMemo(() => gridAlignsWithChords(grid, chords), [grid, chords]);
 
+  // One grid beat = one metronome click; its duration comes from the meter,
+  // so compound meters (6/8 etc.) line up with the grid player instead of drifting.
+  const secondsPerBeat = ts.clickInterval(bpm);
+
   const cues = useMemo(
-    () => (anchor != null ? generateCuesFromGrid(chords, beatsPerChord, anchor, bpm) : []),
-    [anchor, chords, beatsPerChord, bpm],
+    () => (anchor != null ? generateCuesFromGrid(chords, beatsPerChord, anchor, secondsPerBeat) : []),
+    [anchor, chords, beatsPerChord, secondsPerBeat],
   );
 
   const tapAnchor = useCallback(() => {
@@ -112,6 +122,7 @@ export function GridSyncMode({
           <div className="flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wide text-zinc-500">Tempo</span>
             <div className="flex items-baseline gap-1">
+              <span className="font-mono text-amber-400 text-sm mr-0.5">{ts.bpmLabel}=</span>
               <span className="text-2xl font-bold tabular-nums text-zinc-100">{bpm}</span>
               <span className="text-[10px] text-zinc-500 uppercase tracking-wide">bpm</span>
             </div>
@@ -137,6 +148,32 @@ export function GridSyncMode({
               >+{d}</button>
             ))}
           </div>
+        </div>
+
+        {/* Meter — grid beats are counted in metronome clicks for this signature */}
+        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wide text-zinc-500">Meter</span>
+            <span className="text-xs font-mono text-zinc-400">{ts.display}</span>
+          </div>
+          <div className="flex gap-1 overflow-x-auto no-scrollbar">
+            {TIME_SIGNATURES.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTs(t)}
+                className={[
+                  'shrink-0 px-2.5 h-8 rounded-lg text-xs font-mono font-semibold transition-colors touch-manipulation',
+                  ts.id === t.id
+                    ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/40'
+                    : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300',
+                ].join(' ')}
+              >{t.display}</button>
+            ))}
+          </div>
+          <p className="text-[10px] text-zinc-600 leading-relaxed">
+            BPM is the <span className="font-mono text-zinc-500">{ts.bpmLabel}</span> pulse. Spacing
+            matches the grid player for this meter.
+          </p>
         </div>
 
         {/* Anchor / preview */}
