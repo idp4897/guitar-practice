@@ -7,6 +7,7 @@ import {
   TIME_SIGNATURES,
   formatGrouping,
 } from '@/domain/music/timeSignature';
+import { BeatDots } from './BeatDots';
 
 // ─── Tempo labels ─────────────────────────────────────────────────────────────
 
@@ -29,51 +30,6 @@ function tempoLabel(bpm: number) {
 const BPM_MIN        = 40;
 const BPM_MAX        = 240;
 const TAP_MAX_GAP_MS = 2500;
-
-// ─── Beat dot colors per accent level ────────────────────────────────────────
-
-function accentClass(accent: AccentLevel, active: boolean): string {
-  if (active) {
-    if (accent === 'strong') return 'bg-amber-400 scale-125 shadow-lg shadow-amber-400/50';
-    if (accent === 'medium') return 'bg-sky-400 scale-115 shadow-sm shadow-sky-400/40';
-    return 'bg-zinc-200 scale-110 shadow-sm shadow-zinc-200/30';
-  }
-  if (accent === 'strong') return 'bg-amber-800/70';
-  if (accent === 'medium') return 'bg-sky-900/60';
-  return 'bg-zinc-700';
-}
-
-// ─── BeatDots ────────────────────────────────────────────────────────────────
-
-interface BeatDotsProps {
-  accents:      AccentLevel[];
-  currentBeat:  number;
-  isPlaying:    boolean;
-  size?:        'sm' | 'lg';
-}
-
-function BeatDots({ accents, currentBeat, isPlaying, size = 'lg' }: BeatDotsProps) {
-  const dim  = size === 'lg' ? 'w-4 h-4' : 'w-2 h-2';
-  const gap  = size === 'lg' ? 'gap-2'   : 'gap-1.5';
-
-  return (
-    <div className={`flex flex-wrap items-center justify-center ${gap}`}>
-      {accents.map((accent, i) => {
-        const active = isPlaying && currentBeat === i;
-        return (
-          <div
-            key={i}
-            className={[
-              dim, 'rounded-full transition-all',
-              size === 'lg' ? 'duration-75' : 'duration-100',
-              accentClass(accent, active),
-            ].join(' ')}
-          />
-        );
-      })}
-    </div>
-  );
-}
 
 // ─── Metronome ────────────────────────────────────────────────────────────────
 

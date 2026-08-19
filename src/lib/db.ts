@@ -51,6 +51,14 @@ async function initSchema(): Promise<void> {
       updated_at  TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS pomodoro_programs (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      sessions   TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS collection_songs (
       collection_id TEXT NOT NULL,
       song_id       TEXT NOT NULL,

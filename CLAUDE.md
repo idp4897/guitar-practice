@@ -21,22 +21,31 @@ src/
 ├── app/                        Server Components (routes, pages)
 ├── application/                Server Actions ("use server")
 │   ├── songs/song.actions.ts
-│   └── collections/collection.actions.ts
+│   ├── collections/collection.actions.ts
+│   └── pomodoro/pomodoro.actions.ts
 ├── components/                 Client Components ("use client")
 ├── domain/
 │   ├── music/                  Pure music logic — theory, tuning, chordpro, types
+│   ├── pomodoro/               Pure program/timeline logic
 │   └── songs/ + collections/   Pure filter functions
-├── hooks/                      useSongPlayer, useMetronome, useTapSync
-└── lib/                        song-store.ts, collection-store.ts, youtube.ts
+├── hooks/                      useSongPlayer, useMetronome, useTapSync, usePomodoroRunner
+└── lib/                        song-store.ts, collection-store.ts, pomodoro-store.ts, youtube.ts
 ```
 
 ## Data Storage
 
-**No database. No Prisma.** Data is stored in flat JSON files:
-- `.data/songs.json` — `StoredSong[]`
-- `.data/collections.json` — `StoredCollection[]`
+**Turso / libSQL — no Prisma.** The client lives in `src/lib/db.ts` and is driven by
+`TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` (see `.env.local`).
 
-Both files are in `.gitignore` (personal data). Files are created automatically on first use.
+Tables: `songs`, `collections`, `collection_songs`, `pomodoro_programs`.
+
+Schema is created lazily by `ensureDb()` on first query — every store method awaits it.
+To add a column to an existing table, append a `tryAlter('ALTER TABLE … ADD COLUMN …')`
+call at the end of `initSchema()`; it swallows the "column already exists" error so it is
+safe to re-run. New tables go in the `executeMultiple` block as `CREATE TABLE IF NOT EXISTS`.
+
+Access data through the stores in `src/lib/` (`songStore`, `collectionStore`,
+`pomodoroStore`) — never query the client directly from a component or action.
 
 The `prisma/` directory and `src/infrastructure/db/` are legacy stubs — ignore TS errors from them.
 
@@ -144,7 +153,25 @@ Thai text support: always `.normalize('NFC').toLowerCase()`.
 - Optimistic updates in `LibraryPage` (toggle) and `CollectionViewPage` (add/remove song)
 - Soft delete: removing a song from a collection does not delete the song; deleting a collection does not delete its songs
 
-## Test Files (284 tests, all must pass)
+## Pomodoro Training (`/pomodoro`)
+
+Interval practice: a program is an ordered list of mini-sessions, each with its own
+BPM, time signature, training timer, and rest timer.
+
+- `src/domain/pomodoro/program.ts` — `buildTimeline()` flattens sessions into
+  `Stage[]` (train, rest, train, …). **The rest after the final session is dropped**,
+  as is any session whose `restSec` is 0.
+- `usePomodoroRunner(sessions)` owns one `useMetronome` and pushes each stage's BPM /
+  time signature into it at the stage boundary.
+- Countdowns run off a **wall-clock deadline** (`Date.now()`), not an accumulating
+  interval — background tabs throttle timers and would stretch a 10-minute stage.
+- The metronome is silent during rest. After each rest the runner parks in
+  `awaitingReady` until the user confirms; this also guarantees every metronome start
+  follows a user gesture, which the `AudioContext` requires.
+- Sessions are stored as a JSON `TEXT` column on `pomodoro_programs`, like
+  `songs.chord_map` — they are always read and written as one ordered list.
+
+## Test Files (384 tests, all must pass)
 
 ```
 src/__tests__/domain/
@@ -154,8 +181,12 @@ src/__tests__/domain/
 ├── filter.test.ts          filterSongs (Thai, tuning)
 ├── collection-filter.test.ts  filterCollections
 ├── chordpro.test.ts
+├── chord-import.test.ts
 ├── bpm.test.ts
 ├── chord-placer.test.ts
+├── gridCopy.test.ts
+├── gridSync.test.ts
+├── pomodoro.test.ts        buildTimeline, totalDurationSec, validateProgram
 └── timeSignature.test.ts
 ```
 
@@ -163,9 +194,9 @@ Run with: `npm run test`
 
 ## What NOT to do
 
-- Do not use Prisma or any database — use `songStore` / `collectionStore` from `src/lib/`
+- Do not use Prisma — the database is Turso/libSQL, reached through the stores in `src/lib/`
 - Do not remove `loading.tsx` from `src/app/songs/[id]/` — it prevents a real stale-data bug
 - Do not remove `refresh()` from `savePlaybackAction` — same reason
-- Do not commit `.data/` — it contains personal song data and is gitignored
+- Do not commit `.env.local` — it holds the Turso credentials
 - Do not add `any` types
-- Do not mock the filesystem in tests — domain functions are pure and don't touch the FS
+- Do not mock the database in tests — domain functions are pure and don't touch it

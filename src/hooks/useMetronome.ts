@@ -32,6 +32,8 @@ export interface UseMetronomeReturn {
   absoluteBeat:       number;   // total beats since start; -1 when stopped
   currentAccent:      AccentLevel | null;
   toggle:             () => Promise<void>;
+  /** Start unconditionally. Must be called from a user gesture (AudioContext). */
+  start:              () => Promise<void>;
   stop:               () => void;
   setBpm:             (bpm: number) => void;
   setTimeSignature:   (ts: TimeSignature) => void;
@@ -203,6 +205,7 @@ export function useMetronome(
     absoluteBeat,
     currentAccent,
     toggle,
+    start,
     stop,
     setBpm,
     setTimeSignature,
