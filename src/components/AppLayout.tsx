@@ -119,11 +119,6 @@ export function AppLayout({ songs, collections, children }: AppLayoutProps) {
                   hover:text-zinc-400 transition-colors">
                 Collections
               </Link>
-              <Link href="/pomodoro" onClick={() => setSidebarOpen(false)}
-                className="text-xs font-medium text-zinc-600 uppercase tracking-wider
-                  hover:text-zinc-400 transition-colors">
-                Pomodoro
-              </Link>
             </div>
           )}
           <div className="flex items-center gap-1 shrink-0">

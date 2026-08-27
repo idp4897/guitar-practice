@@ -107,6 +107,22 @@ export function LibraryPage({ songs, collections: initialCollections }: LibraryP
           <div className="flex-1" />
 
           <Link
+            href="/chords"
+            className="px-3 py-2 rounded-xl shrink-0 text-sm font-medium text-zinc-400
+              hover:text-zinc-100 hover:bg-zinc-800 transition-colors touch-manipulation"
+          >
+            Chords
+          </Link>
+
+          <Link
+            href="/scales"
+            className="px-3 py-2 rounded-xl shrink-0 text-sm font-medium text-zinc-400
+              hover:text-zinc-100 hover:bg-zinc-800 transition-colors touch-manipulation"
+          >
+            Scales
+          </Link>
+
+          <Link
             href="/pomodoro"
             className="px-3 py-2 rounded-xl shrink-0 text-sm font-medium text-zinc-400
               hover:text-zinc-100 hover:bg-zinc-800 transition-colors touch-manipulation"
