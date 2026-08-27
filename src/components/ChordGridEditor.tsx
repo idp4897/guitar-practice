@@ -5,9 +5,9 @@ import type { ChordSection } from '@/domain/music/types';
 import { copyBeatsToSections, matchingSectionIndices } from '@/domain/music/gridCopy';
 import { GridYouTubePlayer } from './GridYouTubePlayer';
 
-const MAX_BEATS = 8;
+const MAX_BEATS = 16;
 
-// Beats after one badge click: add `step`, wrapping past MAX_BEATS back into 1..8.
+// Beats after one badge click: add `step`, wrapping past MAX_BEATS back into 1..16.
 function nextBeats(current: number, step: number): number {
   const next = current + step;
   return next > MAX_BEATS ? ((next - 1) % MAX_BEATS) + 1 : next;
@@ -267,7 +267,7 @@ export function ChordGridEditor({ grid, onChange, onAutoBuild, hasContent, youtu
                         transition-all"
                     >×</button>
                   </div>
-                  {/* Beats badge — click cycles 1→8→1 */}
+                  {/* Beats badge — click cycles 1→16→1 */}
                   <button
                     onClick={() => setChordBeats(si, ci, nextBeats(cb.beats, beatStep))}
                     title={`Click to add ${beatStep} beat${beatStep > 1 ? 's' : ''}`}
